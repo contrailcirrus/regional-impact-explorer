@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Production build
+dist/
+build/
+
+# Local cache
+.vite/
+*.tsbuildinfo
+
+# Large data files (>50MB) - served on-demand by backend API or object storage
+*_temporal_per_country.json

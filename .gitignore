@@ -1,0 +1,25 @@
+# Python bytecode and build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments and test/type caches
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.pytype/
+.ruff_cache/
+
+# Frontend dependencies and build output
+node_modules/
+ui/node_modules/
+ui/dist/
+
+# Local environment and IDE files
+.env
+.DS_Store
