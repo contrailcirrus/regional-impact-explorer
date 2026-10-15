@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Regional Contrail & Energy Forcing Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="alternate icon" type="image/x-icon" href="/favicon.ico" />
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #f8f9fa;
+      color: #202124;
+      font-family: 'Roboto', 'Helvetica', 'Arial', sans-serif;
+      height: 100vh;
+      overflow: hidden;
+    }
+    #root {
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+  </style>
+  <!--
+    MapLibre GL JS is loaded as a global (`window.maplibregl`) from a pinned,
+    integrity-checked CDN build instead of being bundled, so every build of the
+    app (including ones that cannot bundle npm packages) uses the same MapLibre
+    file. To upgrade, change the version and both `integrity` hashes.
+  -->
+  <link
+    href="https://unpkg.com/maplibre-gl@5.2.0/dist/maplibre-gl.css"
+    rel="stylesheet"
+    integrity="sha384-Nq6PQ+9vJPvw7U/VfDELyrWoGQMsy0gi6QShhaSrGzkpF5KkM40csg2leky+YMTd"
+    crossorigin="anonymous"
+  />
+</head>
+<body>
+  <div id="root"></div>
+  <script
+    src="https://unpkg.com/maplibre-gl@5.2.0/dist/maplibre-gl.js"
+    integrity="sha384-VMpBpZqwtNOdABxFshfUPnyuqncfZtE0j1evmoWakxTDQ+me3EE4G48K/+dSDxSX"
+    crossorigin="anonymous"></script>
+  <script type="module" src="/app.tsx"></script>
+</body>
+</html>

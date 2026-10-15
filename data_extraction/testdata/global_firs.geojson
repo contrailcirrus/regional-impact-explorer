@@ -1,0 +1,40 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"fir_icao": "EDXX", "firname": "FIR Testland North", "fir_to_country_iso2s": "DE", "type": "domestic", "areasqkm": 1000.0},
+      "geometry": {"type": "Polygon", "coordinates": [[[0, 50], [1, 50], [1, 51], [0, 51], [0, 50]]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"fir_icao": " lpxx ", "firname": "Testland Oceanic", "fir_to_country_iso2s": "pt", "type": "International", "areasqkm": 2000.0},
+      "geometry": {"type": "Polygon", "coordinates": [[[-30, 40], [-29, 40], [-29, 41], [-30, 41], [-30, 40]]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"fir_icao": "GOXX", "firname": "FIR Testland West", "fir_to_country_iso2s": "SN, ML, MR, CI, BF", "type": "domestic"},
+      "geometry": {"type": "Polygon", "coordinates": [[[-15, 14], [-14, 14], [-14, 15], [-15, 15], [-15, 14]]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"fir_icao": "KZXX", "firname": "Testland East", "fir_to_country_iso2s": "US", "type": "domestic", "areasqkm": 3000.0},
+      "geometry": {"type": "Polygon", "coordinates": [[[-80, 30], [-79, 30], [-79, 31], [-80, 31], [-80, 30]]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"fir_icao": "KZXX", "firname": "Testland East Oceanic", "fir_to_country_iso2s": "US", "type": "international", "areasqkm": 4000.0},
+      "geometry": {"type": "Polygon", "coordinates": [[[-70, 30], [-69, 30], [-69, 31], [-70, 31], [-70, 30]]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"fir_icao": "UUXX", "firname": "Testland Arctic", "fir_to_country_iso2s": "RU", "type": "domestic"},
+      "geometry": {"type": "MultiPolygon", "coordinates": [[[[40, 70], [41, 70], [41, 71], [40, 71], [40, 70]]], [[[42, 70], [43, 70], [43, 71], [42, 71], [42, 70]]]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"fir_icao": "ZZXX", "firname": "Shared Region", "fir_to_country_iso2s": "FR", "type": "international", "areasqkm": 500.0},
+      "geometry": {"type": "Polygon", "coordinates": [[[2, 45], [3, 45], [3, 46], [2, 46], [2, 45]]]}
+    }
+  ]
+}
