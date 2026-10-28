@@ -1,0 +1,59 @@
+# Build and push the Dataflow worker image for the data_extraction pipeline.
+
+name: data-extraction-worker-image
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - common/**
+      - data_extraction/**
+      - pyproject.toml
+      - .github/workflows/data-extraction-worker-image.yaml
+  workflow_dispatch:
+
+# avoid possible race condition on multiple merges to main
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: us-east1-docker.pkg.dev/contrails-301217/regional-impact-explorer/data-extraction-worker
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Authorize docker CLI with gcloud
+        run: gcloud auth configure-docker us-east1-docker.pkg.dev
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: data_extraction/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
