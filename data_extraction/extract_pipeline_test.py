@@ -29,6 +29,7 @@ from data_extraction import extract_pipeline_main
 from data_extraction import grid_publish
 from data_extraction import grid_rasterizer
 from data_extraction import intermediate_io
+from data_extraction import provenance
 from data_extraction import test_fixtures
 
 FLAGS = flags.FLAGS
@@ -387,6 +388,85 @@ class ExtractPipelineIntegrationTest(parameterized.TestCase):
         artifact_io.read_run_pointer(output_dir, 2025, "example_dataset"),
         run_id,
     )
+    reduce_provenance = intermediate_io.read_provenance(run_root, run_id)
+    self.assertEqual(
+        (reduce_provenance["stage"], reduce_provenance["run_id"]),
+        ("reduce", run_id),
+    )
+
+  def test_end_to_end_pipeline_publishes_provenance(self):
+    dataset_dir = self._get_default_extract_dataset_dir()
+    with open(
+        os.path.join(dataset_dir, provenance.PROVENANCE_FILENAME),
+        "r",
+        encoding="utf-8",
+    ) as f:
+      published = json.load(f)
+
+    self.assertEqual(
+        (published["stage"], published["dataset"], published["year"]),
+        ("reduce", "example_dataset", 2025),
+    )
+    self.assertEqual(
+        published["segments"],
+        {
+            "path": self.parquet_path,
+            "file_count": 1,
+            "files": [self.parquet_path],
+        },
+    )
+    sources = {
+        "airports": self.airports_csv_path,
+        "countries": self.country_geojson_path,
+        "firs": self.firs_geojson_path,
+        "population": self.population_path,
+        "ghg_emissions": self.ghg_path,
+    }
+    self.assertCountEqual(published["reference_inputs"], sources)
+    for name, source in sources.items():
+      record = published["reference_inputs"][name]
+      with open(source, "rb") as f:
+        original = f.read()
+      with open(os.path.join(dataset_dir, record["copy"]), "rb") as f:
+        self.assertEqual(f.read(), original, name)
+      self.assertEqual(record["source"], source)
+
+  def test_workers_read_the_published_reference_copies(self):
+    # Deleting the originals once they are copied proves the workers load
+    # the copies: provenance.json must describe exactly what the run used.
+    copy_reference_inputs = provenance.copy_reference_inputs
+
+    def copy_then_delete_worker_inputs(run_dir, sources):
+      copied = copy_reference_inputs(run_dir, sources)
+      for name in ("airports", "firs", "countries"):
+        os.remove(sources[name])
+      return copied
+
+    output_dir = os.path.join(self.test_dir, "output_copies")
+    with mock.patch.object(
+        provenance,
+        "copy_reference_inputs",
+        side_effect=copy_then_delete_worker_inputs,
+    ):
+      dataset_dir = self._run_extract_pipeline_to_dataset_dir(output_dir)
+
+    self.assertTrue(
+        os.path.exists(
+            os.path.join(dataset_dir, constants.COUNTRY_EXPORT_FILENAME)
+        )
+    )
+
+  def test_missing_airports_path_fails_before_writing_the_run(self):
+    output_dir = os.path.join(self.test_dir, "output_missing_airports")
+    self._configure_run(self.parquet_path, output_dir)
+    FLAGS.airports_path = os.path.join(self.test_dir, "no_such_airports.csv")
+
+    with self.assertRaisesRegex(ValueError, "airports="):
+      extract_pipeline_main.run_pipeline(
+          custom_options=PipelineOptions(["--runner=DirectRunner"])
+      )
+    self.assertFalse(os.path.exists(output_dir))
+
 
   def test_firs_path_under_another_years_directory_is_accepted(self):
     # Boundary files are independent of --input_year: an ICAO 2015 FIR file

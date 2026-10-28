@@ -23,6 +23,7 @@ from data_extraction import extract_pipeline_main
 from data_extraction import grid_publish
 from data_extraction import grid_rasterizer
 from data_extraction import intermediate_io
+from data_extraction import provenance
 from data_extraction import test_fixtures
 
 FLAGS = flags.FLAGS
@@ -637,8 +638,42 @@ class DeriveMainTest(parameterized.TestCase):
         + 1  # grid_meta.json
         + len(derive._DATASET_ARTIFACTS)
         + 2  # countries.geojson, firs.geojson
+        + 2  # provenance.json, inputs/
     )
     self.assertLen(orig_files, expected_total_count)
+  def test_end_to_end_derive_publishes_provenance(self):
+    _, rederived_dir = self._run_extract_and_derive_pipelines()
+    with open(
+        os.path.join(rederived_dir, provenance.PROVENANCE_FILENAME),
+        "r",
+        encoding="utf-8",
+    ) as f:
+      published = json.load(f)
+
+    self.assertEqual(
+        (
+            published["stage"],
+            published["run_id"],
+            published["publish_run_id"],
+            published["intermediate"]["run_id"],
+        ),
+        (
+            "derive",
+            "2026-01-02T03-04-05Z-extract",
+            "2026-02-03T04-05-06Z-rederive",
+            "2026-01-02T03-04-05Z-extract",
+        ),
+    )
+    # derive reads no airports; the reduce run's record of them is carried
+    # along instead.
+    self.assertNotIn("airports", published["reference_inputs"])
+    self.assertEqual(published["reduce"]["stage"], "reduce")
+    self.assertIn("airports", published["reduce"]["reference_inputs"])
+    for record in published["reference_inputs"].values():
+      self.assertTrue(
+          os.path.exists(os.path.join(rederived_dir, record["copy"]))
+      )
+
 
   def test_end_to_end_parity_geojson_boundaries(self):
     orig_dir, rederived_dir = self._run_extract_and_derive_pipelines()

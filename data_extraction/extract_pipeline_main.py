@@ -20,6 +20,7 @@ from data_extraction import grid_publish
 from data_extraction import grid_rasterizer
 from data_extraction import intermediate_io
 from data_extraction import metadata_loader
+from data_extraction import provenance
 
 # Shared with the derive binary; see common_flags for input_year, dataset,
 # output_prefix, intermediate_prefix, run_id, publish_run_id,
@@ -246,6 +247,9 @@ class _PipelineRunContext:
   boundaries: metadata_loader.Boundaries
   # Per-country baseline stats (population, ghg_mtco2e, ...) keyed by ISO2.
   baseline_stats: dict[str, dict[str, Any]]
+  # Reference inputs copied into `dataset_dir/inputs/`, keyed by input name
+  # (`airports`, `countries`, `firs`, ...). Workers read these copies.
+  reference_inputs: dict[str, provenance.ReferenceInput]
 
 
 def _resolve_input_parquet_files(segments_path: str) -> list[str]:
@@ -297,20 +301,38 @@ def _resolve_run_ids(config: ExtractConfig) -> tuple[str, str]:
   return run_id, publish_run_id
 
 
+def _reference_input_sources(config: ExtractConfig) -> dict[str, str]:
+  """Returns every reference input path of `config`, keyed by input name."""
+  return {
+      "airports": config.airports_path,
+      "countries": config.country_geojson_path,
+      "firs": config.firs_path,
+      "population": config.population_path,
+      "ghg_emissions": config.ghg_emissions_path,
+      "country_stats": config.country_stats_path,
+  }
+
+
 def _load_and_publish_reference_data(
     config: ExtractConfig, dataset_dir: str
-) -> tuple[metadata_loader.Boundaries, dict[str, dict[str, Any]]]:
-  """Loads boundaries and baseline stats, and publishes the boundaries.
+) -> tuple[
+    metadata_loader.Boundaries,
+    dict[str, dict[str, Any]],
+    dict[str, provenance.ReferenceInput],
+]:
+  """Loads reference data, and publishes the boundaries and input copies.
 
   Args:
     config: Validated pipeline configuration.
     dataset_dir: New published run directory for this run's artifacts.
 
   Returns:
-    The loaded boundaries and the per-country baseline stats, in that order.
+    The loaded boundaries, the per-country baseline stats, and the reference
+    inputs copied into `dataset_dir`, in that order.
 
   Raises:
-    ValueError: If FIR feature validation fails.
+    ValueError: If FIR feature validation fails or a reference input (such as
+      `--airports_path`, which only the workers parse) does not exist.
     RuntimeError: If boundary geometry indices or baseline reference files are
       missing or empty.
   """
@@ -330,13 +352,19 @@ def _load_and_publish_reference_data(
       country_stats_path=config.country_stats_path,
       input_year=config.year,
   )
+  # Copied before anything else is written, and the copy checks every source
+  # first, so a bad path (notably `--airports_path`, which the driver does not
+  # otherwise read) fails here instead of on every worker mid-run.
+  reference_inputs = provenance.copy_reference_inputs(
+      dataset_dir, _reference_input_sources(config)
+  )
   # Publish the boundaries this run attributes against. Written from the
   # driver before the pipeline starts: the run directory stays invisible
   # until the pointer flips, so this needs no publish signal of its own.
   artifact_io.write_boundary_geojson(
       dataset_dir, boundaries.country_features, boundaries.fir_features
   )
-  return boundaries, baseline_stats
+  return boundaries, baseline_stats, reference_inputs
 
 
 def _prepare_pipeline_run(config: ExtractConfig) -> _PipelineRunContext:
@@ -390,8 +418,8 @@ def _prepare_pipeline_run(config: ExtractConfig) -> _PipelineRunContext:
   logging.info("Segment pattern: %s", config.segments_path)
   logging.info("Target Output Directory: %s", config.output_prefix)
 
-  boundaries, baseline_stats = _load_and_publish_reference_data(
-      config, dataset_dir
+  boundaries, baseline_stats, reference_inputs = (
+      _load_and_publish_reference_data(config, dataset_dir)
   )
 
   return _PipelineRunContext(
@@ -405,6 +433,7 @@ def _prepare_pipeline_run(config: ExtractConfig) -> _PipelineRunContext:
       started_at=started_at,
       boundaries=boundaries,
       baseline_stats=baseline_stats,
+      reference_inputs=reference_inputs,
   )
 
 
@@ -428,6 +457,10 @@ def _ingest_and_process_shards(
 ) -> Any:
   """Creates file shards, splits chunks, and runs per-shard extraction."""
   config = run_context.config
+  # Workers load the run's own copies, not the original paths: the copies are
+  # what provenance.json records, and they sit under the output prefix, which
+  # every worker can read even when the originals were local to the launcher.
+  references = run_context.reference_inputs
   raw_files = (
       pipeline
       | "CreateFileShards" >> beam.Create(run_context.parquet_files)
@@ -445,9 +478,9 @@ def _ingest_and_process_shards(
   )
   return shards_split | "ProcessParquetShards" >> beam.ParDo(
       beam_stages.ProcessParquetShardDoFn(
-          airports_path=config.airports_path,
-          firs_path=config.firs_path,
-          country_geojson_path=config.country_geojson_path,
+          airports_path=references["airports"].path,
+          firs_path=references["firs"].path,
+          country_geojson_path=references["countries"].path,
           grid_config=config.grid_config,
           input_year=config.year,
       )
@@ -669,6 +702,60 @@ def _wire_export_and_publish_branches(
   )
 
 
+# Pipeline options worth recording: which runner and worker image produced the
+# run, and where to find its job. Everything else is tuning.
+_PROVENANCE_PIPELINE_OPTIONS = (
+    "runner",
+    "project",
+    "region",
+    "job_name",
+    "sdk_container_image",
+)
+
+
+def _write_reduce_provenance(
+    run_context: _PipelineRunContext, options: PipelineOptions
+) -> None:
+  """Writes `provenance.json` to the run directory and the intermediate run.
+
+  Args:
+    run_context: Resolved driver-side state for this run.
+    options: Pipeline options the job is submitted with.
+  """
+  config = run_context.config
+  all_options = options.get_all_options()
+  document = provenance.build_provenance(
+      stage=provenance.STAGE_REDUCE,
+      dataset=config.dataset,
+      year=config.year,
+      run_id=run_context.run_id,
+      publish_run_id=run_context.publish_run_id,
+      reference_inputs=run_context.reference_inputs,
+      run_dir=run_context.dataset_dir,
+      started_at=run_context.started_at,
+      segments={
+          "path": config.segments_path,
+          "file_count": len(run_context.parquet_files),
+          "files": list(run_context.parquet_files),
+      },
+      intermediate_prefix=run_context.intermediate_root or None,
+      grid_config=config.grid_config.to_dict(),
+      settings={
+          "expected_fir_count": config.expected_fir_count,
+          "max_failed_shards": config.max_failed_shards,
+          "max_rows_per_chunk": config.max_rows_per_chunk,
+      },
+      pipeline_options={
+          name: all_options.get(name) for name in _PROVENANCE_PIPELINE_OPTIONS
+      },
+  )
+  provenance.write_provenance(run_context.dataset_dir, document)
+  if run_context.intermediate_run_root:
+    intermediate_io.write_provenance(
+        document, run_context.intermediate_run_root, run_context.run_id
+    )
+
+
 def run_pipeline(
     config: ExtractConfig | None = None,
     *,
@@ -697,6 +784,7 @@ def run_pipeline(
       custom_options=custom_options,
       runner_factory=runner_factory,
   )
+  _write_reduce_provenance(run_context, options)
   with beam.Pipeline(runner=runner_obj, options=options) as pipeline:
     shards_processed = _ingest_and_process_shards(pipeline, run_context)
     _wire_export_and_publish_branches(pipeline, shards_processed, run_context)
