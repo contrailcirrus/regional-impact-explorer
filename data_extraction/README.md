@@ -38,7 +38,7 @@ flowchart TD
 
   subgraph Preflight["Pre-flight validation & setup (driver)"]
     Validate["Validate flags, run IDs & boundary schemas"]
-    WriteGeo["Write countries.geojson & firs.geojson to runs/{publish_run_id}/"]
+    WriteGeo["Copy reference inputs, write provenance.json, countries.geojson & firs.geojson to runs/{publish_run_id}/"]
     Validate --> WriteGeo
   end
 
@@ -115,7 +115,9 @@ flowchart TD
     driver validates all flags and run IDs, checks that `runs/{publish_run_id}/`
     does not already exist, validates the country and FIR boundary files and
     country baselines, and writes `countries.geojson` and `firs.geojson` into
-    the target run directory.
+    the target run directory. It also copies every reference input into the
+    run's `inputs/` directory and writes `provenance.json` (see
+    [Provenance](#provenance)); the workers read those copies.
 2.  **Shard splitting & per-shard attribution (`shard_processor`)**:
     `extract_pipeline_main` lists matching Parquet files, splits large files
     into row-range chunks (`--max_rows_per_chunk`), and reshuffles them across
@@ -229,10 +231,11 @@ validates the boundary GeoJSONs (`--firs_path`, `--country_geojson_path`) and
 country baseline files, raising `ValueError` (if FIR feature validation or
 `--expected_fir_count` fails, or a country feature lacks `iso_a2` or `name`) or
 `RuntimeError` (if a boundary index or baseline file is missing, unreadable, or
-empty). `--airports_path` is only loaded by the worker processes (via
-`shard_processor.load_process_worker_context`), after the run directory has
-been created and the boundary GeoJSONs written to it, so a bad airports path
-fails the run late and the next attempt needs a new `--publish_run_id`.
+empty). Every reference input path, including `--airports_path` (which only the
+workers parse), must exist before anything is written: a missing one raises
+`ValueError` and leaves no run directory behind. Reference inputs may be local
+paths even on a remote runner, because the workers read the copies published
+under `--output_prefix` (see [Provenance](#provenance)).
 
 | Flag | Description |
 | --- | --- |
@@ -286,6 +289,10 @@ python -m data_extraction.derive_main \
 
 The grid geometry comes from the intermediate's manifest, not from flags. This
 way the slices are always encoded at the resolution they were rasterised at.
+
+`derive_main` publishes its own `inputs/` copies and `provenance.json` for the
+reference files it reads, and carries the reduce run's provenance along (see
+[Provenance](#provenance)).
 
 Before it publishes anything, `derive_main` checks that the manifest and all
 grid slices are present, and that the run lost no more shards than
@@ -637,8 +644,42 @@ $v_{\text{ref}} = \operatorname{sign}(y) \cdot (10^{|y|} - 1)$.
     ├── grid_meta.json                                       # geometry, LODs, encoding, scale maxima
     ├── {grid_prefix}[_lod0|_lod1].bin.gz                    # 74 grid keys + LOD variants (see below)
     ├── countries.geojson                                    # boundaries this run was derived with
-    └── firs.geojson
+    ├── firs.geojson
+    ├── provenance.json                                      # what this run was built from (see below)
+    └── inputs/{name}/{basename}                             # byte-for-byte copies of the reference inputs
 ```
+
+### Provenance
+
+Every published run records what it was built from, so a dataset can be
+reproduced or audited after its sources change.
+
+*   `inputs/` holds unmodified copies of each reference input the run used,
+    one directory per input: `airports`, `countries`, `firs`, `population`,
+    `ghg_emissions` and `country_stats` (only those that were passed). The
+    copies are made on the driver before the pipeline starts, and the reduce
+    workers load `airports`, `countries` and `firs` from them rather than
+    from the original paths. `countries.geojson` and `firs.geojson` at the
+    top of the run are the normalized boundaries the server serves; the
+    originals are under `inputs/`.
+*   `provenance.json` records, for each input, its original `source` path,
+    the `copy` path relative to the run directory, its `sha256` and
+    `size_bytes`; plus the `stage` (`reduce` or `derive`), `run_id` and
+    `publish_run_id`, `created_at`, `pipeline_version` (see
+    `CONTRAILS_PIPELINE_VERSION`), the launching checkout's `git` commit and
+    whether it had uncommitted changes, and the `grid_config`.
+    *   A `reduce` run adds the `segments` glob with the matched file list,
+        the `intermediate_prefix`, and the Beam `pipeline_options` that
+        identify the job (`runner`, `project`, `region`, `job_name`,
+        `sdk_container_image`).
+    *   A `derive` run adds the `intermediate` run it read (including its
+        `run.json` manifest) and, under `reduce`, the provenance of the reduce
+        run that produced that intermediate. The reduce run stores a copy of
+        its `provenance.json` next to `run.json` for this purpose.
+
+The Parquet segments are listed but not copied or hashed: they are far larger
+than the reference data. Keep exported segment folders immutable (export to a
+new prefix rather than overwriting) if a run must stay reproducible.
 
 `{grid_prefix}` is one of the following, where `{kind}` is `impact` or
 `density`:

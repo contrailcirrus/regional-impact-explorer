@@ -41,6 +41,7 @@ from data_extraction import grid_publish
 from data_extraction import grid_rasterizer
 from data_extraction import intermediate_io
 from data_extraction import metadata_loader
+from data_extraction import provenance
 
 
 @dataclasses.dataclass(frozen=True)
@@ -201,6 +202,8 @@ class _PreparedDerivationInputs:
   baseline_stats: dict[str, dict[str, object]]
   # Loaded and indexed country and FIR boundary geometries.
   boundaries: metadata_loader.Boundaries
+  # Manifest of the intermediate run being derived from.
+  manifest: intermediate_io.RunManifest
   # Grid resolution and encoding recorded in the intermediate run manifest.
   grid_config: grid_rasterizer.GridConfig
   # Every (grid_type, bucket_type, bucket_index) grid to publish, e.g.
@@ -352,6 +355,7 @@ def _prepare_derivation_inputs(
       run_root=run_root,
       baseline_stats=baseline_stats,
       boundaries=boundaries,
+      manifest=manifest,
       grid_config=grid_config,
       keys=keys,
       prefixes=prefixes,
@@ -415,6 +419,52 @@ def _publish_summary_artifacts(
   logging.info("Published %d summary artifacts.", len(written))
 
 
+def _publish_provenance(
+    config: DeriveConfig, inputs: _PreparedDerivationInputs
+) -> None:
+  """Copies the reference inputs into the run and writes `provenance.json`.
+
+  The reduce run's own provenance (segments, airports, code version) is
+  carried along when the intermediate has it, so the published run records
+  both halves of its lineage.
+
+  Args:
+    config: The derivation run configuration.
+    inputs: Validated inputs from `_prepare_derivation_inputs`.
+  """
+  reference_inputs = provenance.copy_reference_inputs(
+      inputs.dataset_dir,
+      {
+          "countries": config.country_geojson_path,
+          "firs": config.firs_path,
+          "population": config.population_path,
+          "ghg_emissions": config.ghg_emissions_path,
+          "country_stats": config.country_stats_path,
+      },
+  )
+  document = provenance.build_provenance(
+      stage=provenance.STAGE_DERIVE,
+      dataset=config.dataset,
+      year=config.year,
+      run_id=config.run_id,
+      publish_run_id=inputs.publish_run_id,
+      reference_inputs=reference_inputs,
+      run_dir=inputs.dataset_dir,
+      intermediate={
+          "prefix": config.intermediate_prefix,
+          "run_id": config.run_id,
+          "manifest": inputs.manifest.to_dict(),
+      },
+      grid_config=inputs.grid_config.to_dict(),
+      settings={
+          "expected_fir_count": config.expected_fir_count,
+          "max_failed_shards": config.max_failed_shards,
+      },
+      reduce=intermediate_io.read_provenance(inputs.run_root, config.run_id),
+  )
+  provenance.write_provenance(inputs.dataset_dir, document)
+
+
 def run_derivation(config: DeriveConfig | None = None) -> None:
   """Reads one intermediate run and republishes its artifacts."""
   if config is None:
@@ -422,6 +472,7 @@ def run_derivation(config: DeriveConfig | None = None) -> None:
 
   inputs = _prepare_derivation_inputs(config)
 
+  _publish_provenance(config, inputs)
   artifact_io.write_boundary_geojson(
       inputs.dataset_dir,
       inputs.boundaries.country_features,

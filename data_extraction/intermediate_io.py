@@ -14,6 +14,9 @@ Layout:
     {root}/{year}/{dataset}/runs/{run_id}/
       run.json                        provenance, schema version and shard
                                       loss; written after the aggregates
+      provenance.json                 the reduce run's published provenance
+                                      (reference inputs, code version);
+                                      written before the pipeline starts
       country_agg.jsonl               one row per (name, iso, month, hour)
       fir_agg.jsonl                   one row per (firname, icao, iso, type,
                                       month, hour)
@@ -45,6 +48,7 @@ from data_extraction import grid_rasterizer
 SCHEMA_VERSION = 2
 
 _RUN_MANIFEST = "run.json"
+_PROVENANCE = "provenance.json"
 _COUNTRY_AGG = "country_agg.jsonl"
 _FIR_AGG = "fir_agg.jsonl"
 _GRID_SLICES = "grid_slices"
@@ -239,6 +243,43 @@ def read_manifest(root: str, run_id: str) -> RunManifest:
   """Reads and parses `run.json` for `run_id` under `root`."""
   with fs.open_file(manifest_path(root, run_id), "r") as f:
     return RunManifest.from_dict(json.load(f))
+
+
+def provenance_path(root: str, run_id: str) -> str:
+  """Returns the path to the reduce run's `provenance.json` for `run_id`."""
+  return os.path.join(run_dir(root, run_id), _PROVENANCE)
+
+
+def write_provenance(
+    provenance: Mapping[str, Any], root: str, run_id: str
+) -> str:
+  """Atomically writes the reduce run's provenance and returns its path.
+
+  Kept beside the aggregates so a later `derive` can carry it into the run it
+  publishes, even when that run's directory differs from the reduce run's.
+
+  Args:
+    provenance: The document `provenance.build_provenance` returned.
+    root: Intermediate dataset root.
+    run_id: Intermediate run id.
+
+  Returns:
+    The written path.
+  """
+  path = provenance_path(root, run_id)
+  fs.ensure_parent_dir(path)
+  with fs.atomic_open_for_write(path, "w") as f:
+    json.dump(dict(provenance), f, indent=2)
+  return path
+
+
+def read_provenance(root: str, run_id: str) -> dict[str, Any] | None:
+  """Returns the reduce run's provenance, or None for runs that predate it."""
+  path = provenance_path(root, run_id)
+  if not fs.exists(path):
+    return None
+  with fs.open_file(path, "r") as f:
+    return json.load(f)
 
 
 # ---------------------------------------------------------------------------

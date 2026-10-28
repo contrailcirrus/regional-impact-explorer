@@ -58,7 +58,10 @@ The launching environment must match the worker image: Python 3.12 and
 pip install -e . "apache-beam[gcp]==2.77.0"
 gcloud auth application-default login
 
-# One-off: upload reference data
+# Reference data: each run copies these into runs/{run_id}/inputs/ and records
+# their sha256 in provenance.json, and the workers read those copies, so REF can
+# also be a local directory. A shared, never-overwritten GCS folder per version
+# keeps the sources easy to find across runs.
 python -m data_extraction.fetch_reference_data --output_dir=/tmp/ref
 # ... plus firs.geojson (see data_extraction/README.md#fir-geojson)
 gcloud storage cp /tmp/ref/* gs://contrails-301217-regional-impact-results/reference/
