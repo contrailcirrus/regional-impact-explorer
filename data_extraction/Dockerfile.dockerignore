@@ -1,0 +1,13 @@
+# BuildKit reads this file in place of the root .dockerignore when building
+# data_extraction/Dockerfile. Only the pipeline's runtime sources are sent.
+*
+!pyproject.toml
+!README.md
+!common/
+!data_extraction/
+
+**/__pycache__/
+**/*_test.py
+**/testdata/
+data_extraction/test_fixtures.py
+data_extraction/Dockerfile*

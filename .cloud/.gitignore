@@ -1,0 +1,4 @@
+# terraform build files
+.terraform/
+.terraform.lock.hcl
+*.tfplan
