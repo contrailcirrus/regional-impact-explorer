@@ -1,0 +1,14 @@
+// Cloudflare Workers static-assets deploy of the dashboard. Workers Builds runs
+// `npm run build` in `ui/`, then `npx wrangler deploy` (production branch) or
+// `npx wrangler versions upload` (preview branches) with this config.
+{
+  // Must match the Worker name in the Cloudflare dashboard.
+  "name": "regional-impact-explorer",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    // Vite's `build.outDir` in `vite.config.ts`.
+    "directory": "./dist",
+    // Unknown paths serve `index.html` rather than a 404.
+    "not_found_handling": "single-page-application"
+  }
+}
