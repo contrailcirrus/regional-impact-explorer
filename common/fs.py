@@ -396,7 +396,9 @@ def isdir(path: str) -> bool:
   if _is_remote_scheme(path):
     _get_beam_filesystem(path)
     bfs = _require_beam_file_systems()
-    pattern = path.rstrip("/") + "/*"
+    # Object stores have no directory objects and Beam's `*` stops at `/`, so
+    # match recursively: a directory holding only subdirectories still counts.
+    pattern = path.rstrip("/") + "/**"
     match_results = bfs.match([pattern], limits=[1])
     return bool(match_results and match_results[0].metadata_list)
   return os.path.isdir(_normalize_local_path(path))
@@ -411,7 +413,9 @@ def listdir(path: str) -> list[str]:
     _get_beam_filesystem(path)
     bfs = _require_beam_file_systems()
     prefix = path.rstrip("/") + "/"
-    pattern = prefix + "*"
+    # `**`, not `*`: Beam's `*` stops at `/`, which would drop every
+    # subdirectory, since object stores only hold the objects nested in it.
+    pattern = prefix + "**"
     match_results = bfs.match([pattern])
     if not match_results or not match_results[0].metadata_list:
       return []

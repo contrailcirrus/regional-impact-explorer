@@ -4,6 +4,7 @@ from collections.abc import Callable
 import functools
 import io
 import os
+import re
 import sys
 from typing import Any
 from unittest import mock
@@ -254,6 +255,42 @@ class FsTest(parameterized.TestCase):
       self.assertEqual(fs.listdir(remote_dir), ["item.json"])
       self.assertEqual(fs.glob("custom://bucket/dir/*.json"), [remote_path])
       self.assertFalse(os.path.exists(os.path.join(os.getcwd(), "custom:")))
+
+  def test_remote_listing_includes_subdirectories(self):
+    # Like GCS: no directory objects, and patterns filtered with Beam's glob
+    # semantics, where `*` does not cross `/`.
+    objects = [
+        "custom://bucket/2026/ds/latest.json",
+        "custom://bucket/2026/ds/runs/r1/summary.json",
+        "custom://bucket/reference/airports.csv",
+        "custom://bucket/top.txt",
+    ]
+
+    def match(patterns, limits=None):
+      del limits
+      regex = re.compile(
+          beam_filesystem.FileSystem.translate_pattern(patterns[0])
+      )
+      return [
+          beam_filesystem.MatchResult(
+              patterns[0],
+              [
+                  beam_filesystem.FileMetadata(o, size_in_bytes=0)
+                  for o in objects
+                  if regex.match(o)
+              ],
+          )
+      ]
+
+    fake_beam_fs = self._make_fake_beam_fs()
+    fake_beam_fs.match.side_effect = match
+    with mock.patch.object(fs, "_beam_file_systems", fake_beam_fs):
+      self.assertEqual(
+          fs.listdir("custom://bucket/"), ["2026", "reference", "top.txt"]
+      )
+      self.assertEqual(fs.listdir("custom://bucket/2026"), ["ds"])
+      self.assertTrue(fs.isdir("custom://bucket/2026"))
+      self.assertFalse(fs.isdir("custom://bucket/2027"))
 
   def test_registered_backend_serves_remote_paths(self):
     fake_backend = _fake_backend()
