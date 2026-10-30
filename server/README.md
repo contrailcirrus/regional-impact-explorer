@@ -32,20 +32,20 @@ directory.
 *   Python 3.11+
 *   `fastapi>=0.100.0`, `pydantic>=2.0.0`, `uvicorn>=0.23.0`, `absl-py>=2.0.0`,
     `google-cloud-storage>=2.14.0`: the package's core dependencies, installed
-    by `pip install -e .`. A `gs://` `CONTRAILS_DATA_DIR` is read with the GCS
-    client (`common/gcs_backend.py`, registered at startup by
-    `data_loader.configure_storage`) using Application Default Credentials;
+    by `pip install -e .`. A `gs://` `REGIONAL_CONTRAILS_DATA_DIR` is read with
+    the GCS client (`common/gcs_backend.py`, registered at startup by
+    `data_loader.configure_from_env`) using Application Default Credentials;
     Apache Beam is not needed.
 
 ## Running the server
 
 Run the server from the repository root (or from any directory after installing
 with `pip install -e .`) with
-`CONTRAILS_DATASET` and `CONTRAILS_DATA_DIR` set:
+`REGIONAL_CONTRAILS_DATASET` and `REGIONAL_CONTRAILS_DATA_DIR` set:
 
 ```sh
-export CONTRAILS_DATASET=my_dataset
-export CONTRAILS_DATA_DIR=/data/out
+export REGIONAL_CONTRAILS_DATASET=my_dataset
+export REGIONAL_CONTRAILS_DATA_DIR=/data/out
 python -m server.server
 ```
 
@@ -75,16 +75,23 @@ it. A host application:
 ```python
 from server import data_loader, server
 
-data_loader.configure_storage()  # Read a gs:// CONTRAILS_DATA_DIR without Beam.
+# At startup: reads REGIONAL_CONTRAILS_DATASET (raising DatasetConfigError if
+# it is unset) and sets up a gs:// REGIONAL_CONTRAILS_DATA_DIR to be read
+# without Beam.
+data_loader.configure_from_env()
 app.include_router(server.router, prefix="/internal/regional")
 server.register_exception_handlers(app)  # Routers cannot carry these.
 ```
 
-The host also sets `CONTRAILS_DATASET` and `CONTRAILS_DATA_DIR`, and adds
-`X-Grid-Meta` to the `expose_headers` of its CORS policy. Everything else in
-`server.app` stays behind:
+`REGIONAL_CONTRAILS_DATA_DIR` is read when `data_loader` is imported, so set
+both variables before the host imports it. The host also adds `X-Grid-Meta` to
+the `expose_headers` of its CORS policy. Everything else in `server.app` stays
+behind:
 
-*   **CORS and gzip**: the host's own middleware applies instead.
+*   **CORS**: the host's own middleware applies instead.
+*   **Compression middleware**: the router's routes (`server.GzipRoute`) gzip
+    their own JSON responses over 1 kB for clients that accept gzip, so the
+    host's other endpoints are unaffected.
 *   **Startup preload**: endpoints load each year's data on first use, so a
     host instance that never serves the dashboard never loads it.
 *   **The dashboard's own files** (`/`, `/index.html`, favicons, `/assets/*`):
@@ -101,8 +108,8 @@ parent directory of `server/` (the repository root in a source checkout).
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `CONTRAILS_DATASET` | *(required)* | Dataset name to serve (`{dataset}` directory under `{data_dir}/{year}/`). Up to 64 ASCII letters, digits, `-`, or `_`. |
-| `CONTRAILS_DATA_DIR` | `<package_root>/data` | Root directory containing published `{year}/{dataset}/` directories. |
+| `REGIONAL_CONTRAILS_DATASET` | *(required)* | Dataset name to serve (`{dataset}` directory under `{data_dir}/{year}/`). Up to 64 ASCII letters, digits, `-`, or `_`. |
+| `REGIONAL_CONTRAILS_DATA_DIR` | `<package_root>/data` | Root directory containing published `{year}/{dataset}/` directories. |
 | `CONTRAILS_UI_DIST_DIR` | `<package_root>/ui/dist` | Directory containing built frontend assets (`index.html`, `favicon.svg`, `assets/*`). If a file is missing there (or `CONTRAILS_UI_DIST_DIR=""`), it is looked up under `ui/` in the working directory, then `<package_root>`, and finally via `fs.resolve_resource_path`; the unbuilt `ui/index.html` found that way does not render, and `/assets/*` is only served from `CONTRAILS_UI_DIST_DIR` (returning 404 when `CONTRAILS_UI_DIST_DIR=""`). Assets must be regular files inside the directory; symlinks that resolve outside `assets/` are not served. |
 | `CONTRAILS_CORS_ORIGIN_REGEX` | `http://127\.0\.0\.1:\d+\|http://localhost:\d+` | Regular expression matching allowed CORS origins. Cross-origin requests are limited to `GET`/`HEAD` with CORS-safelisted request headers and no credentials (cookies); the `X-Grid-Meta` response header is exposed to matching origins. |
 | `HOST` | `0.0.0.0` | Bind address when running `python -m server.server`. |
@@ -110,8 +117,8 @@ parent directory of `server/` (the repository root in a source checkout).
 
 ## Dataset directory layout
 
-Each published year and dataset under `CONTRAILS_DATA_DIR` must follow the
-layout written by `data_extraction/`:
+Each published year and dataset under `REGIONAL_CONTRAILS_DATA_DIR` must follow
+the layout written by `data_extraction/`:
 
 ```
 {data_dir}/{year}/{dataset}/
@@ -136,7 +143,7 @@ Interactive OpenAPI documentation is served at `/docs`, `/redoc` and
 
 | Method & Path | Description |
 | --- | --- |
-| `GET /years` | `{"years": [...]}`: the four-digit years available for `CONTRAILS_DATASET`, ascending. |
+| `GET /years` | `{"years": [...]}`: the four-digit years available for `REGIONAL_CONTRAILS_DATASET`, ascending. |
 | `GET /countries/{year}` | List of all country metric rows for `{year}`. |
 | `GET /country/{year}/{iso}` | Country metrics and aggregated FIR summary fields (`fir_total_*`, `fir_dom_*`, `fir_int_*`) for `{iso}` (ISO 3166-1 alpha-2). Individual FIR rows are served by `GET /firs/{year}`. |
 | `GET /firs/{year}` | List of all FIR metric rows for `{year}`, with attributed country names and ISO codes. |
@@ -221,7 +228,7 @@ year-over-year series (`GET /series/{metric}?fir_id={fir_id}`). Requesting a
 | `400 Bad Request` | Invalid request parameter or unpublished year (`DataValidationError`, `HTTPException`) | Non-4-digit or unpublished `{year}` (not in `/years`; a year whose `latest.json` is absent, undecodable, structurally invalid, or has an unsupported `schema_version` at year discovery counts as unpublished) on any year-scoped endpoint (`/countries/{year}`, `/country/{year}/{iso}`, `/firs/{year}`, `/rankings/{year}/{metric}`, `/temporal/{year}`, `/countries/{year}.json`, `/firs/{year}.json`, `/grid/{year}/availability`, `/grid/{year}/{prefix}/meta`, `/grid/{year}/{prefix}/binary`); malformed or non-ASCII `iso` or grid `prefix`; a `fir_id` longer than 128 characters on `/series/{metric}` (other malformed `fir_id` values match no FIR and return 404); `/series/{metric}` or `/temporal/{year}` called with neither `iso` nor `fir_id`; or `/series/{metric}` called with a `FIR_ROW_METRICS` slug without `fir_id`. |
 | `404 Not Found` | Resource, metric, or route not found (`UnknownMetricError`, `HTTPException`) | Unrecognized `{metric}` slug on `/rankings/{year}/{metric}` or `/series/{metric}`; country-only metric (`tonnes_co2e_per_capita` or `ratio_of_national_ghg`) requested with `fir_id` on `/series/{metric}`; unknown country `{iso}` on `/country/{year}/{iso}`, `/temporal/{year}`, or `/series/{metric}`; unknown `{fir_id}` on `/temporal/{year}` (without `iso` fallback) or `/series/{metric}`; entity has only null values across all available years on `/series/{metric}`; missing grid `{prefix}` on `/grid/{year}/{prefix}/meta` or `/grid/{year}/{prefix}/binary`, or missing/unreadable `grid_meta.json` on `/grid/{year}/{prefix}/meta`; missing boundary GeoJSON file for a published year on `/countries/{year}.json` or `/firs/{year}.json`; or an unmatched URL path. |
 | `422 Unprocessable Entity` | Unsupported GWP horizon, missing metric column, or query schema validation failure (`UnsupportedGwpError`, `MissingColumnError`, FastAPI validation) | Unsupported `?gwp=` value (must be `gwp20`, `gwp50`, or `gwp100`); requested metric/GWP column absent from the dataset rows on `/rankings/{year}/{metric}` or `/series/{metric}`; or FastAPI query parameter validation failure (such as a non-integer `?lod=` query value or an `iso`/`fir_id` query string exceeding `max_length` on `/temporal/{year}`). |
-| `503 Service Unavailable` | Dataset unconfigured or published pointer/artifact unreadable or corrupt (`DatasetConfigError`, `ArtifactUnavailableError`) | `CONTRAILS_DATASET` is not configured or invalid (only reachable when the app is served without its lifespan handler; `python -m server.server` and the lifespan refuse to start unconfigured); a listed year's `country_fir_density_df_export_per_country.json` is unreadable (`OSError`) or invalid JSON (`JSONDecodeError`), `fir_density_df_export_per_country.json` is missing, unreadable, or invalid JSON, or either annual export is not a JSON list of objects; a published row or temporal matrix fails Pydantic schema or `fir_to_country_iso2s` validation; a grid `.bin.gz` payload fails gzip decompression when `Accept-Encoding: identity` is requested; or `resolve_dataset_dir` encounters a structurally invalid `latest.json` (not a JSON object, a non-integer `schema_version`, or a missing or unsafe `run_id`) after `/years` was already cached. |
+| `503 Service Unavailable` | Dataset unconfigured or published pointer/artifact unreadable or corrupt (`DatasetConfigError`, `ArtifactUnavailableError`) | `REGIONAL_CONTRAILS_DATASET` is not configured or invalid (only reachable when the app is served without its lifespan handler; `python -m server.server` and the lifespan refuse to start unconfigured); a listed year's `country_fir_density_df_export_per_country.json` is unreadable (`OSError`) or invalid JSON (`JSONDecodeError`), `fir_density_df_export_per_country.json` is missing, unreadable, or invalid JSON, or either annual export is not a JSON list of objects; a published row or temporal matrix fails Pydantic schema or `fir_to_country_iso2s` validation; a grid `.bin.gz` payload fails gzip decompression when `Accept-Encoding: identity` is requested; or `resolve_dataset_dir` encounters a structurally invalid `latest.json` (not a JSON object, a non-integer `schema_version`, or a missing or unsafe `run_id`) after `/years` was already cached. |
 
 ## Tests
 

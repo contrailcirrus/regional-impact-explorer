@@ -41,9 +41,12 @@ dev = [
   "pytest>=7.4.0",
 ]
 
+# Only what a host application such as contrails-api imports is installed. The
+# pipeline runs from a checkout (or the worker image's PYTHONPATH), so
+# data_extraction is not installed into other applications' environments.
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["common*", "data_extraction*", "server*"]
+include = ["common*", "server*"]
 namespaces = true
 
 [tool.pytest.ini_options]

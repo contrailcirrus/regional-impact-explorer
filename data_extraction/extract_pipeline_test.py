@@ -467,7 +467,7 @@ class ExtractPipelineIntegrationTest(parameterized.TestCase):
 
   def test_require_dataset_error_names_the_server_env_var(self):
     with flagsaver.flagsaver(dataset=""):
-      with self.assertRaisesRegex(ValueError, "CONTRAILS_DATASET"):
+      with self.assertRaisesRegex(ValueError, "REGIONAL_CONTRAILS_DATASET"):
         common_flags.require_dataset()
 
   @parameterized.parameters("../escape", "a/b", "a b", "a.b", "x" * 65)

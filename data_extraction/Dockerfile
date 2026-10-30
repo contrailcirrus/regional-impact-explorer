@@ -18,6 +18,10 @@ ARG BEAM_VERSION
 
 WORKDIR /opt/regional-impact-explorer
 
+# The package installs common/ but not data_extraction/ (see pyproject.toml),
+# so the SDK harness imports the pipeline code from here.
+ENV PYTHONPATH=/opt/regional-impact-explorer
+
 COPY pyproject.toml README.md ./
 COPY common/ common/
 COPY data_extraction/ data_extraction/

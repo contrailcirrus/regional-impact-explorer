@@ -7,10 +7,10 @@ matrices.
 The data endpoints live on `router`, so another FastAPI application can mount
 them under a prefix. A host application must also call
 `register_exception_handlers` (routers cannot carry exception handlers), expose
-the `X-Grid-Meta` header in its CORS policy, configure the dataset through the
-`CONTRAILS_DATA_DIR` and `CONTRAILS_DATASET` environment variables, and call
-`data_loader.configure_storage` at startup so a `gs://` data root is readable
-without Apache Beam.
+the `X-Grid-Meta` header in its CORS policy, set the
+`REGIONAL_CONTRAILS_DATA_DIR` and `REGIONAL_CONTRAILS_DATASET` environment
+variables, and call `data_loader.configure_from_env` at startup. The router's routes gzip their own
+responses (`GzipRoute`), so the host needs no compression middleware.
 
 `app` is the standalone server: it mounts `router` at the root, adds CORS, gzip
 and the dashboard's static assets, and preloads the dataset at startup.
@@ -31,7 +31,9 @@ import zlib
 from absl import app as absl_app
 from absl import logging
 import fastapi
+from fastapi import concurrency
 from fastapi import responses
+from fastapi import routing
 from fastapi.middleware import cors
 from fastapi.middleware import gzip as gzip_middleware
 import pydantic
@@ -65,6 +67,9 @@ _DEFAULT_PORT = 9090
 _DEFAULT_HOST = "0.0.0.0"
 _HEADER_X_GRID_META = "X-Grid-Meta"
 _CACHE_CONTROL_ONE_HOUR = "public, max-age=3600"
+_HEADER_CONTENT_LENGTH = "Content-Length"
+_GZIP_MINIMUM_SIZE = 1000
+_GZIP_COMPRESS_LEVEL = 5
 _KEY_DETAIL = "detail"
 _KEY_COUNTRIES = "countries"
 _KEY_COUNTRY_NAME = "country_name"
@@ -116,13 +121,12 @@ async def lifespan(
 
   Raises:
     data_loader.DatasetConfigError: If no dataset is configured and
-      `CONTRAILS_DATASET` is unset or invalid. Raising here aborts startup,
-      which also covers `uvicorn server.server:app` launches that bypass
-      `main`.
+      `REGIONAL_CONTRAILS_DATASET` is unset or invalid. Raising here aborts
+      startup, which also covers `uvicorn server.server:app` launches that
+      bypass `main`.
   """
   del app_instance  # Unused.
-  data_loader.configure_storage()
-  dataset = data_loader.ensure_dataset_configured()
+  dataset = data_loader.configure_from_env()
   logging.info("Serving dataset %r from %s", dataset, data_loader.DATA_DIR)
 
   task = asyncio.create_task(_safe_preload())
@@ -160,8 +164,8 @@ def _gzip_middleware_kwargs() -> abc.Mapping[str, Any]:
   """Returns immutable keyword arguments for `GZipMiddleware`."""
   kwdefaults = gzip_middleware.GZipMiddleware.__init__.__kwdefaults__ or {}
   kwargs: dict[str, Any] = {
-      "minimum_size": 1000,
-      "compresslevel": 5,
+      "minimum_size": _GZIP_MINIMUM_SIZE,
+      "compresslevel": _GZIP_COMPRESS_LEVEL,
   }
   if (exclude_types := kwdefaults.get("exclude_content_types")) is not None:
     kwargs["exclude_content_types"] = (
@@ -241,8 +245,69 @@ def register_exception_handlers(
 
 register_exception_handlers(app)
 
+
+async def _gzip_body(
+    request: fastapi.Request, response: fastapi.Response
+) -> fastapi.Response:
+  """Gzips `response` in place when it is worth it and `request` accepts it.
+
+  Leaves streamed responses, bodies under `_GZIP_MINIMUM_SIZE` bytes and
+  bodies that already carry a `Content-Encoding` (the pre-gzipped grid and
+  GeoJSON payloads) as they are.
+
+  Args:
+    request: The incoming request, read only for its Accept-Encoding header.
+    response: The route's response.
+
+  Returns:
+    `response`, with a gzipped body if the client accepts gzip.
+  """
+  body = getattr(response, "body", None)
+  if (
+      not isinstance(body, bytes)
+      or len(body) < _GZIP_MINIMUM_SIZE
+      or static_assets.HEADER_CONTENT_ENCODING in response.headers
+  ):
+    return response
+  response.headers.add_vary_header(static_assets.HEADER_ACCEPT_ENCODING)
+  if not static_assets.accepts_gzip_encoding(request):
+    return response
+  # Compressing a multi-megabyte body takes long enough to stall the event
+  # loop, so it runs in the thread pool like the sync endpoints do.
+  compressed = await concurrency.run_in_threadpool(
+      gzip.compress, body, compresslevel=_GZIP_COMPRESS_LEVEL
+  )
+  response.body = compressed
+  response.headers[static_assets.HEADER_CONTENT_ENCODING] = (
+      static_assets.ENCODING_GZIP
+  )
+  response.headers[_HEADER_CONTENT_LENGTH] = str(len(compressed))
+  return response
+
+
+class GzipRoute(routing.APIRoute):
+  """A route that gzips its response when the client accepts gzip.
+
+  Compression lives on the routes rather than in middleware so that a host
+  application mounting `router` compresses the dashboard's large JSON
+  responses without changing how its own endpoints respond.
+  """
+
+  def get_route_handler(
+      self,
+  ) -> abc.Callable[
+      [fastapi.Request], abc.Coroutine[Any, Any, fastapi.Response]
+  ]:
+    handler = super().get_route_handler()
+
+    async def gzip_route_handler(request: fastapi.Request) -> fastapi.Response:
+      return await _gzip_body(request, await handler(request))
+
+    return gzip_route_handler
+
+
 # The data endpoints. `app` includes them below, after they are all defined.
-router = fastapi.APIRouter()
+router = fastapi.APIRouter(route_class=GzipRoute)
 
 
 _ModelT = TypeVar("_ModelT", bound=pydantic.BaseModel)

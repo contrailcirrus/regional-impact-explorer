@@ -158,8 +158,9 @@ flowchart TD
 *   `apache-beam>=2.71`, `pyarrow>=16`, `pandas`, `numpy`, `shapely>=2`,
     `pyproj`, `pycountry`, `absl-py`
 
-Run every entry point as a module from the repository root (or from any
-directory after installing the package with `pip install -e ".[pipeline]"`):
+Install the dependencies with `pip install -e ".[pipeline]"`, then run every
+entry point as a module from the repository root (the package does not install
+`data_extraction` itself):
 
 ```sh
 python -m data_extraction.extract_pipeline_main --helpfull
@@ -237,7 +238,7 @@ fails the run late and the next attempt needs a new `--publish_run_id`.
 | Flag | Description |
 | --- | --- |
 | `--input_year` | Four-digit calendar year of the input. Becomes a path component. Rows outside this year are dropped. |
-| `--dataset` | Dataset name, used as a path component. Up to 64 letters, digits, `-` or `_`. Start the server with `CONTRAILS_DATASET` set to the same value. |
+| `--dataset` | Dataset name, used as a path component. Up to 64 letters, digits, `-` or `_`. Start the server with `REGIONAL_CONTRAILS_DATASET` set to the same value. |
 | `--output_prefix` | Root directory that artifacts are published under. |
 | `--segments_path` | Glob, directory or single file of segment Parquet files. A directory is listed non-recursively and only `.pq` / `.parquet` files are kept. Must match at least one file. |
 | `--airports_path` | [OurAirports](https://ourairports.com/data/) `airports.csv`, used to map departure and arrival airports to countries. |

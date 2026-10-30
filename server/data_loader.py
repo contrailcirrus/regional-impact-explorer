@@ -31,7 +31,7 @@ from server import metrics
 
 _PACKAGE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DEFAULT_LOCAL_DATA_DIR: str = os.path.join(_PACKAGE_DIR, "data")
-DATA_DIR_ENV_VAR = "CONTRAILS_DATA_DIR"
+DATA_DIR_ENV_VAR = "REGIONAL_CONTRAILS_DATA_DIR"
 
 # Root of the published datasets: `{root}/{year}/{dataset}/...`, see
 # `artifact_io.resolve_dataset_dir`. The available years are the `{year}`
@@ -44,7 +44,7 @@ _MAX_TEMPORAL_CACHE_ENTRIES: int = 256
 
 # Name of the environment variable holding the dataset to serve: the
 # `{dataset}` directory under `{root}/{year}/`, i.e. the pipeline's `--dataset`.
-DATASET_ENV_VAR = "CONTRAILS_DATASET"
+DATASET_ENV_VAR = "REGIONAL_CONTRAILS_DATASET"
 _MAX_DATASET_LENGTH = 64
 
 # Set once at startup by `configure_dataset` / `ensure_dataset_configured`.
@@ -112,7 +112,7 @@ def configure_dataset(dataset: str) -> str:
 def configure_dataset_from_env(
     environ: abc.Mapping[str, str] | None = None,
 ) -> str:
-  """Configures the dataset from `CONTRAILS_DATASET`.
+  """Configures the dataset from `REGIONAL_CONTRAILS_DATASET`.
 
   Args:
     environ: The environment to read; defaults to `os.environ`.
@@ -139,7 +139,9 @@ def configure_dataset_from_env(
 
 
 def ensure_dataset_configured() -> str:
-  """Returns the configured dataset, reading `CONTRAILS_DATASET` if unset.
+  """Returns the configured dataset, reading `REGIONAL_CONTRAILS_DATASET`.
+
+  The variable is read only if no dataset is configured yet.
 
   An explicit `configure_dataset` call (e.g. from a launcher) takes
   precedence over the environment.
@@ -166,6 +168,25 @@ def configure_storage() -> None:
   if DATA_DIR[:5].lower() == "gs://":
     fs.register_filesystem_backend(gcs_backend.GcsBackend())
     logging.info("Reading %s with the GCS client", DATA_DIR)
+
+
+def configure_from_env() -> str:
+  """Prepares the data layer to serve, from the environment.
+
+  Sets up storage for `REGIONAL_CONTRAILS_DATA_DIR` (see `configure_storage`)
+  and configures the dataset from `REGIONAL_CONTRAILS_DATASET` unless one is
+  already configured. Call once at startup, before the first request; every endpoint
+  fails with `DatasetConfigError` until it has run.
+
+  Returns:
+    The configured dataset name.
+
+  Raises:
+    DatasetConfigError: If no dataset is configured and
+      `REGIONAL_CONTRAILS_DATASET` is unset, blank or invalid.
+  """
+  configure_storage()
+  return ensure_dataset_configured()
 
 
 def active_dataset() -> str:

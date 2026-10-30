@@ -42,8 +42,8 @@ and updates are pushed to live resources via `terraform apply`.
 | `main.tf` | Provider, state backend, Dataflow API |
 | `gcs.tf` | `contrails-301217-regional-impact-results` (published runs read by the server, plus hand-uploaded `reference/` inputs), `contrails-301217-regional-impact-intermediate` (reduce output for `derive_main` re-runs), `contrails-301217-regional-impact-dataflow-tmp` (Dataflow temp/staging, deleted after 7 days) |
 | `artifact_registry.tf` | `regional-impact-explorer` Docker repository for the Dataflow worker image |
-| `auth.tf` | `regional-impact-dataflow` worker service account and the IAM bindings for workers, launchers and CI |
-| `variables.tf` | Stubs for resources owned elsewhere: the flight-segment input bucket, the CI service account and the list of launchers |
+| `auth.tf` | `regional-impact-dataflow` worker service account and the IAM bindings for workers, launchers, CI and contrails-api (read-only on the results bucket) |
+| `variables.tf` | Stubs for resources owned elsewhere: the flight-segment input bucket, the CI and contrails-api service accounts and the list of launchers |
 
 The worker image is built from `data_extraction/Dockerfile` by
 `.github/workflows/data-extraction-worker-image.yaml` on every push to `main`

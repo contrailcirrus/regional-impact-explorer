@@ -114,3 +114,14 @@ resource "google_artifact_registry_repository_iam_member" "ci_image_writer" {
   role       = "roles/artifactregistry.writer"
   member     = "serviceAccount:${var.ci_service_account_email}"
 }
+
+# ------------------------------------
+# contrails-api serves the dashboard API (/internal/regional) from the results
+# bucket (see var.api_service_account_email)
+# ------------------------------------
+resource "google_storage_bucket_iam_member" "api_results_object_viewer" {
+  count  = var.api_service_account_email == "" ? 0 : 1
+  bucket = google_storage_bucket.results.name
+  role   = "roles/storage.objectViewer"
+  member = "serviceAccount:${var.api_service_account_email}"
+}
