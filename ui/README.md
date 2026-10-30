@@ -65,6 +65,16 @@ to the FastAPI server on `http://localhost:9090` (configurable via the
 `vite.config.ts` lists every route the frontend calls; add to it when you add an
 endpoint, or the dev server will 404 while production works.
 
+To develop against contrails-api, which serves the API under
+`/internal/regional` (on port 8080 with `make serve`), also set
+`CONTRAILS_BACKEND_PATH_PREFIX`:
+
+```bash
+CONTRAILS_BACKEND_ORIGIN=http://localhost:8080 \
+CONTRAILS_BACKEND_PATH_PREFIX=/internal/regional \
+npm run dev
+```
+
 ## Production build
 
 ```bash
