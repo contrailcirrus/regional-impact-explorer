@@ -30,17 +30,17 @@ directory.
 ## Requirements
 
 *   Python 3.11+
-*   `fastapi>=0.100.0`, `pydantic>=2.0.0`, `uvicorn>=0.23.0`, `absl-py>=2.0.0`
-    (installable standalone via `pip install "absl-py>=2.0.0" "fastapi>=0.100.0"
-    "pydantic>=2.0.0" "uvicorn>=0.23.0"`, or with the full project via `pip
-    install -r requirements.txt`; `apache-beam` is loaded lazily by
-    `common/fs.py` only if `CONTRAILS_DATA_DIR` points to remote `gs://`,
-    `s3://`, or `hdfs://` URIs)
+*   `fastapi>=0.100.0`, `pydantic>=2.0.0`, `uvicorn>=0.23.0`, `absl-py>=2.0.0`,
+    `google-cloud-storage>=2.14.0`: the package's core dependencies, installed
+    by `pip install -e .`. A `gs://` `CONTRAILS_DATA_DIR` is read with the GCS
+    client (`common/gcs_backend.py`, registered at startup by
+    `data_loader.configure_storage`) using Application Default Credentials;
+    Apache Beam is not needed.
 
 ## Running the server
 
 Run the server from the repository root (or from any directory after installing
-with `pip install -e .`, which also installs the pipeline dependencies) with
+with `pip install -e .`) with
 `CONTRAILS_DATASET` and `CONTRAILS_DATA_DIR` set:
 
 ```sh
@@ -65,6 +65,34 @@ To serve a prebuilt Vite frontend bundle from a custom path (by default
 export CONTRAILS_UI_DIST_DIR=/path/to/ui/dist
 python -m server.server
 ```
+
+## Mounting in another application
+
+The API endpoints are on `server.router`, so another FastAPI application can
+serve them under a prefix. `server.app` is only the standalone server around
+it. A host application:
+
+```python
+from server import data_loader, server
+
+data_loader.configure_storage()  # Read a gs:// CONTRAILS_DATA_DIR without Beam.
+app.include_router(server.router, prefix="/internal/regional")
+server.register_exception_handlers(app)  # Routers cannot carry these.
+```
+
+The host also sets `CONTRAILS_DATASET` and `CONTRAILS_DATA_DIR`, and adds
+`X-Grid-Meta` to the `expose_headers` of its CORS policy. Everything else in
+`server.app` stays behind:
+
+*   **CORS and gzip**: the host's own middleware applies instead.
+*   **Startup preload**: endpoints load each year's data on first use, so a
+    host instance that never serves the dashboard never loads it.
+*   **The dashboard's own files** (`/`, `/index.html`, favicons, `/assets/*`):
+    the frontend is deployed separately.
+
+Like the standalone server, a host caches which run `latest.json` names for
+the life of the process, so a newly published run is served after a restart
+or redeploy.
 
 ## Configuration
 

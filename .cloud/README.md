@@ -55,7 +55,7 @@ The launching environment must match the worker image: Python 3.12 and
 `apache-beam[gcp]==2.77.0` (see `ARG`s in `data_extraction/Dockerfile`).
 
 ```bash
-pip install -e . "apache-beam[gcp]==2.77.0"
+pip install -e ".[pipeline]" "apache-beam[gcp]==2.77.0"
 gcloud auth application-default login
 
 # One-off: upload reference data

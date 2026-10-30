@@ -25,7 +25,7 @@ COPY data_extraction/ data_extraction/
 # Pinning apache-beam keeps pip from replacing the SDK the base image's boot
 # entrypoint was built against. The import check fails the build, rather than
 # the first Dataflow job, if a dependency is missing.
-RUN pip install --no-cache-dir . "apache-beam[gcp]==${BEAM_VERSION}" \
+RUN pip install --no-cache-dir ".[pipeline]" "apache-beam[gcp]==${BEAM_VERSION}" \
     && cd / \
     && python -c "import data_extraction.extract_pipeline_main"
 

@@ -3,6 +3,17 @@
 Provides endpoints to look up country and FIR metrics, rankings by metric,
 multi-year time series, spatial grid buffers, boundary GeoJSONs, and temporal
 matrices.
+
+The data endpoints live on `router`, so another FastAPI application can mount
+them under a prefix. A host application must also call
+`register_exception_handlers` (routers cannot carry exception handlers), expose
+the `X-Grid-Meta` header in its CORS policy, configure the dataset through the
+`CONTRAILS_DATA_DIR` and `CONTRAILS_DATASET` environment variables, and call
+`data_loader.configure_storage` at startup so a `gs://` data root is readable
+without Apache Beam.
+
+`app` is the standalone server: it mounts `router` at the root, adds CORS, gzip
+and the dashboard's static assets, and preloads the dataset at startup.
 """
 
 import asyncio
@@ -92,7 +103,10 @@ async def _safe_preload() -> None:
 async def lifespan(
     app_instance: fastapi.FastAPI,
 ) -> abc.AsyncIterator[None]:
-  """Checks the dataset config, then preloads data in the background.
+  """Sets up storage, checks the dataset config, then preloads in background.
+
+  Only the standalone `app` runs this. A host application that mounts `router`
+  skips the preload, and every endpoint loads what it needs on first use.
 
   Args:
     app_instance: The FastAPI application being started. Unused.
@@ -107,6 +121,7 @@ async def lifespan(
       `main`.
   """
   del app_instance  # Unused.
+  data_loader.configure_storage()
   dataset = data_loader.ensure_dataset_configured()
   logging.info("Serving dataset %r from %s", dataset, data_loader.DATA_DIR)
 
@@ -207,10 +222,12 @@ def _domain_error_response(
   )
 
 
-def _register_domain_error_handlers(
+def register_exception_handlers(
     application: fastapi.FastAPI,
 ) -> None:
   """Maps each domain exception type onto its HTTP status code.
+
+  Call this on any application that includes `router`.
 
   Args:
     application: The FastAPI application to register handlers on.
@@ -222,7 +239,10 @@ def _register_domain_error_handlers(
     )
 
 
-_register_domain_error_handlers(app)
+register_exception_handlers(app)
+
+# The data endpoints. `app` includes them below, after they are all defined.
+router = fastapi.APIRouter()
 
 
 _ModelT = TypeVar("_ModelT", bound=pydantic.BaseModel)
@@ -321,7 +341,7 @@ def _controlling_country_iso2s(
   )
 
 
-@app.get("/years", response_model=models.AvailableYearsResponse)
+@router.get("/years", response_model=models.AvailableYearsResponse)
 def get_available_years() -> models.AvailableYearsResponse:
   """Returns the years with published data, sorted ascending.
 
@@ -334,13 +354,13 @@ def get_available_years() -> models.AvailableYearsResponse:
 # Boundary GeoJSON routes. Starlette matches routes in registration order and
 # `/countries/{year}` / `/firs/{year}` would otherwise also capture
 # `2025.json`, so these must be registered before the list routes below.
-app.add_api_route(
+router.add_api_route(
     "/countries/{year}.json",
     static_assets.get_countries_geojson,
     methods=["GET"],
     response_class=fastapi.responses.Response,
 )
-app.add_api_route(
+router.add_api_route(
     "/firs/{year}.json",
     static_assets.get_firs_geojson,
     methods=["GET"],
@@ -348,7 +368,7 @@ app.add_api_route(
 )
 
 
-@app.get("/country/{year}/{iso}", response_model=models.CountryMetricsResponse)
+@router.get("/country/{year}/{iso}", response_model=models.CountryMetricsResponse)
 def get_country_by_year_and_iso(
     year: SupportedYearPath,
     iso: str = fastapi.Path(..., description="ISO alpha-2 country code."),
@@ -464,7 +484,7 @@ def _clear_endpoint_response_caches() -> None:
 data_loader.register_cache_clear_callback(_clear_endpoint_response_caches)
 
 
-@app.get(
+@router.get(
     "/countries/{year}", response_model=list[models.CountryMetricsResponse]
 )
 def list_countries(
@@ -504,7 +524,7 @@ def list_countries(
   return response
 
 
-@app.get("/firs/{year}", response_model=list[models.FirMetricsResponse])
+@router.get("/firs/{year}", response_model=list[models.FirMetricsResponse])
 def list_firs(
     year: SupportedYearPath,
 ) -> list[models.FirMetricsResponse]:
@@ -1023,7 +1043,7 @@ def _build_country_rankings_response(
   return country_response
 
 
-@app.get("/rankings/{year}/{metric}", response_model=models.RankingsResponse)
+@router.get("/rankings/{year}/{metric}", response_model=models.RankingsResponse)
 def get_country_rankings(
     year: SupportedYearPath,
     metric: str = fastapi.Path(..., description="Metric ID."),
@@ -1299,7 +1319,7 @@ def _build_time_series_response(
   )
 
 
-@app.get("/series/{metric}", response_model=models.TimeSeriesResponse)
+@router.get("/series/{metric}", response_model=models.TimeSeriesResponse)
 def get_time_series(
     metric: str = fastapi.Path(..., description="Metric ID."),
     *,
@@ -1365,7 +1385,7 @@ def get_time_series(
   return _build_time_series_response(accumulation, spec=spec, gwp_norm=gwp_norm)
 
 
-@app.get("/grid/{year}/{prefix}/meta")
+@router.get("/grid/{year}/{prefix}/meta")
 def get_grid_meta(
     year: FormattedYearPath,
     prefix: str,
@@ -1455,7 +1475,7 @@ def _encode_grid_payload(
   return _EncodedGridPayload(content=payload, headers=headers)
 
 
-@app.get("/grid/{year}/{prefix}/binary")
+@router.get("/grid/{year}/{prefix}/binary")
 def get_grid_binary(
     year: FormattedYearPath,
     *,
@@ -1522,7 +1542,7 @@ def get_grid_binary(
   )
 
 
-@app.get(
+@router.get(
     "/grid/{year}/availability",
     response_model=models.GridAvailabilityResponse,
 )
@@ -2006,7 +2026,7 @@ def _compute_temporal_response(
   )
 
 
-@app.get("/temporal/{year}", response_model=models.TemporalMatrixResponse)
+@router.get("/temporal/{year}", response_model=models.TemporalMatrixResponse)
 def get_temporal_metrics(
     year: SupportedYearPath,
     iso: str | None = fastapi.Query(
@@ -2074,6 +2094,10 @@ def get_temporal_metrics(
       iso_clean=iso_clean,
       fir_id_clean=fir_id_clean,
   )
+
+
+# Data routes come first, so the static asset routes below cannot shadow them.
+app.include_router(router)
 
 
 # Static assets routes

@@ -12,17 +12,13 @@ license = {text = "Apache-2.0"}
 authors = [
   {name = "Maximilian Czerny"},
 ]
+# What the API server (`server`, `common`) needs. The extraction pipeline's
+# dependencies are in the `pipeline` extra.
 dependencies = [
   "absl-py>=2.0.0",
-  "apache-beam>=2.71.0",
   "fastapi>=0.100.0",
-  "numpy>=1.24.0",
-  "pandas>=2.0.0",
-  "pyarrow>=16.0.0",
-  "pycountry>=22.3.5",
+  "google-cloud-storage>=2.14.0",
   "pydantic>=2.0.0",
-  "pyproj>=3.5.0",
-  "shapely>=2.0.0",
   "uvicorn>=0.23.0",
 ]
 
@@ -30,6 +26,15 @@ dependencies = [
 Repository = "https://github.com/contrailcirrus/regional-impact-explorer"
 
 [project.optional-dependencies]
+pipeline = [
+  "apache-beam[gcp]>=2.71.0",
+  "numpy>=1.24.0",
+  "pandas>=2.0.0",
+  "pyarrow>=16.0.0",
+  "pycountry>=22.3.5",
+  "pyproj>=3.5.0",
+  "shapely>=2.0.0",
+]
 dev = [
   "httpx>=0.24.0",
   "pyink>=23.10.0",

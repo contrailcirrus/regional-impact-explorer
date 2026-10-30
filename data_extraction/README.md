@@ -159,7 +159,7 @@ flowchart TD
     `pyproj`, `pycountry`, `absl-py`
 
 Run every entry point as a module from the repository root (or from any
-directory after installing the package with `pip install -e .`):
+directory after installing the package with `pip install -e ".[pipeline]"`):
 
 ```sh
 python -m data_extraction.extract_pipeline_main --helpfull

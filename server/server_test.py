@@ -5319,9 +5319,11 @@ class ExplicitYearTest(DashboardTestBase):
   )
 
   def _api_route_paths(self):
+    # Newer FastAPI versions keep an included router as one nested entry in
+    # `app.routes` instead of copying its routes, so read `router` directly.
     return [
         route.path
-        for route in server.app.routes
+        for route in (*server.router.routes, *server.app.routes)
         if isinstance(route, fastapi.routing.APIRoute)
     ]
 

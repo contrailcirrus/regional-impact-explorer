@@ -25,6 +25,7 @@ from absl import logging
 from common import artifact_io
 from common import constants
 from common import fs
+from common import gcs_backend
 from server import json_utils
 from server import metrics
 
@@ -153,6 +154,18 @@ def ensure_dataset_configured() -> str:
   if _active_dataset is not None:
     return _active_dataset
   return configure_dataset_from_env()
+
+
+def configure_storage() -> None:
+  """Reads a `gs://` data root with the GCS client rather than Apache Beam.
+
+  Registers `gcs_backend.GcsBackend` with `fs` when `DATA_DIR` is a `gs://`
+  URI; a local data root keeps the standard library. Call once at startup,
+  before the first request.
+  """
+  if DATA_DIR[:5].lower() == "gs://":
+    fs.register_filesystem_backend(gcs_backend.GcsBackend())
+    logging.info("Reading %s with the GCS client", DATA_DIR)
 
 
 def active_dataset() -> str:
