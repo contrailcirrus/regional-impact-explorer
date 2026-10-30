@@ -273,24 +273,24 @@ function buildHeatmapColorScale(
     const rdYlGnInterpolator = d3Lib.interpolateRdYlGn;
     if (rdYlGnInterpolator) {
       const seq = d3Lib.scaleSequential(rdYlGnInterpolator).domain([0, 1.0]);
-      return (val: number) => seq(val);
+      return (val: number) => seq(val) ?? colorPalette[0];
     }
     const quantize = d3Lib
       .scaleQuantize<string>()
       .domain([0, 1.0])
       .range(colorPalette);
-    return (val: number) => quantize(val);
+    return (val: number) => quantize(val) ?? colorPalette[0];
   }
   const interpolator = d3Lib.interpolateOrRd || d3Lib.interpolateOranges;
   if (interpolator) {
     const seq = d3Lib.scaleSequential(interpolator).domain([0, maxVal]);
-    return (val: number) => seq(val);
+    return (val: number) => seq(val) ?? colorPalette[0];
   }
   const quantize = d3Lib
     .scaleQuantize<string>()
     .domain([0, maxVal])
     .range(colorPalette);
-  return (val: number) => quantize(val);
+  return (val: number) => quantize(val) ?? colorPalette[0];
 }
 
 /** Selects the D3 tick number formatter for a heatmap colorbar legend. */
@@ -712,7 +712,7 @@ const HeatmapSvgGrid = React.memo((props: HeatmapSvgGridProps) => {
       .domain([0, legendDomainMax])
       .range([HEATMAP_GRID_HEIGHT, 0]);
     return {
-      legendScale: (tickVal: number) => linearLegend(tickVal),
+      legendScale: (tickVal: number) => linearLegend(tickVal) ?? 0,
       formatFn: resolveLegendTickFormatter(d3Lib, mode, gridModel.maxVal),
       legendTicks: linearLegend.ticks(5),
     };
