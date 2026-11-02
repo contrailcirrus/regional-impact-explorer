@@ -27,6 +27,7 @@ import {
   RasterMetadata,
 } from './geo_raster_utils';
 import {FIR_TYPE_DOMESTIC} from './metric_formatters';
+import {apiUrl} from './api_url';
 
 /** Minimal MapLibre event shape. */
 export interface MapLibreEvent {
@@ -879,7 +880,7 @@ export function boundaryGeoJsonUrl(
   year: number,
 ): string {
   const cleanYear = requireYear(year, 'boundaryGeoJsonUrl');
-  return `/${kind}/${encodeURIComponent(cleanYear)}.json`;
+  return apiUrl(`/${kind}/${encodeURIComponent(cleanYear)}.json`);
 }
 
 /**

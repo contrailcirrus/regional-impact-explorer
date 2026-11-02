@@ -1,6 +1,10 @@
 // Cloudflare Workers static-assets deploy of the dashboard. Workers Builds runs
-// `npm run build` in `ui/`, then `npx wrangler deploy` (production branch) or
-// `npx wrangler versions upload` (preview branches) with this config.
+// `npm run build` in `ui/`, then `npx wrangler deploy` (production branch,
+// `main`) or `npx wrangler preview` (every other branch) with this config.
+//
+// The API the UI calls is compiled into the bundle by `vite.config.ts`, from
+// the branch being built: Worker `vars` would only reach Worker code, and this
+// Worker has none.
 {
   // Must match the Worker name in the Cloudflare dashboard.
   "name": "regional-impact-explorer",
@@ -10,5 +14,7 @@
     "directory": "./dist",
     // Unknown paths serve `index.html` rather than a 404.
     "not_found_handling": "single-page-application"
-  }
+  },
+  // Branch builds use Worker Previews; they need no settings of their own.
+  "previews": {}
 }

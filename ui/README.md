@@ -85,8 +85,23 @@ Emits `dist/index.html` and hashed bundles under `dist/assets/`. When
 `index.html` exists in `ui/dist/` (or in the directory named by
 `CONTRAILS_UI_DIST_DIR`), the FastAPI server (`python -m server.server`) serves
 the production build at `/` and `/assets/*`. The build is required for the
-FastAPI server's `/` to render; the frontend fetches every API route from its
-own origin.
+FastAPI server's `/` to render.
+
+The API address is compiled into the build (`apiBaseUrl` in `vite.config.ts`):
+
+| Build | API |
+| --- | --- |
+| `VITE_API_BASE_URL` set | That URL, e.g. `https://api.dev.contrails.org/internal/regional` |
+| Cloudflare Workers Builds, branch `main` | `https://api.contrails.org/internal/regional` |
+| Cloudflare Workers Builds, any other branch | `https://api.dev.contrails.org/internal/regional` |
+| Anywhere else (local builds, `npm run dev`) | The page's own origin |
+
+## Cloudflare deployment
+
+Workers Builds deploys `ui/` with `wrangler.jsonc`: build command
+`npm run build`, deploy command `npx wrangler deploy` for `main`, and
+`npx wrangler preview` for every other branch, each of which gets its own
+Preview URL. The API must allow those origins in its CORS policy.
 
 ## Testing and type-checking
 

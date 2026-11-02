@@ -20,6 +20,7 @@ import {
   NOT_AVAILABLE_LABEL,
   YoYIndicator,
 } from './metric_formatters';
+import {apiUrl} from './api_url';
 
 /**
  * Options for `fetchBackendJson`.
@@ -46,13 +47,14 @@ async function fetchBackendJson<T>(
 ): Promise<T | null> {
   const {parse, description, signal} = options;
   if (signal?.aborted) return null;
-  // Same-origin API, so the default credentials mode ('same-origin') applies.
+  // No cookies are needed, so the default credentials mode ('same-origin')
+  // applies whether the API is same-origin or not.
   const init: RequestInit = {};
   if (signal) init.signal = signal;
 
   let body: unknown;
   try {
-    const response = await fetch(path, init);
+    const response = await fetch(apiUrl(path), init);
     if (!response.ok) {
       console.warn(
         `Failed to fetch ${description} from ${path}: HTTP ${response.status}`,
