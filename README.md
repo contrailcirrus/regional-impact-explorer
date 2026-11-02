@@ -25,7 +25,7 @@ flight-segment Parquet ──► data_extraction/ ──► {output_prefix}/{yea
 | --- | --- | --- |
 | Shared utilities & constants | [`common/`](./common/README.md) | Shared GWP constants, metric/artifact naming contracts, atomic `latest.json` run-pointer helpers (`artifact_io.py`), and pluggable filesystem I/O (`fs.py`). Free of heavy pipeline dependencies so `server/` stays lightweight. |
 | Data extraction pipeline | [`data_extraction/`](./data_extraction/README.md) | Apache Beam `reduce` stage that attributes flight segments to countries, FIRs, and global raster grids, plus a Beam-free `derive` stage that computes derived climate metrics; together they publish immutable run directories. |
-| Backend API server | [`server/`](./server/README.md) | FastAPI application that reads published run directories for a configured dataset (`CONTRAILS_DATASET`) under `CONTRAILS_DATA_DIR` and serves country/FIR summaries, rankings, multi-year series, temporal matrices, raster grids, and static UI assets. |
+| Backend API server | [`server/`](./server/README.md) | FastAPI application that reads published run directories for a configured dataset (`REGIONAL_CONTRAILS_DATASET`) under `REGIONAL_CONTRAILS_DATA_DIR` and serves country/FIR summaries, rankings, multi-year series, temporal matrices, raster grids, and static UI assets. |
 | Frontend UI | [`ui/`](./ui/README.md) | React and TypeScript single-page application featuring a MapLibre globe/map with a WebGL2 float16 raster heatmap layer, country and FIR metric panels, rankings, year-over-year trajectories, and interactive temporal avoidance opportunity heatmaps. |
 
 For details on the contrail energy-forcing to $\text{CO}_2\text{e}$ conversions,
@@ -51,24 +51,21 @@ serving, and testing the React + Vite frontend; `npm test` uses
 
 ### 1. Install Python Dependencies
 
-From the repository root, install the full package (including the Apache Beam
-extraction pipeline and test dependencies) in a virtual environment:
+From the repository root, install the full package (the API server, the
+Apache Beam extraction pipeline and the test dependencies) in a virtual
+environment:
 
 ```sh
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[pipeline,dev]"
 ```
 
-`pip install -e .` always installs the full dependency set, including the
-pipeline's. If you only need to run the FastAPI backend server against
-already-published data, `server/` imports only `common/` and four lightweight
-runtime dependencies, so you can skip the package install and run it from the
-repository root after installing just those:
-
-```sh
-pip install "absl-py>=2.0.0" "fastapi>=0.100.0" "pydantic>=2.0.0" "uvicorn>=0.23.0"
-```
+`pip install -e .` installs only what the FastAPI backend server needs to serve
+already-published data, locally or from `gs://`. The extraction pipeline's
+dependencies, Apache Beam among them, are in the `pipeline` extra. The package
+installs the `common` and `server` modules only, so run the pipeline from the
+repository root.
 
 ### 2. Data Extraction Pipeline
 
@@ -120,8 +117,8 @@ works right away; the dashboard at `/` additionally needs the production UI
 build from step 4 (`npm run build`):
 
 ```sh
-export CONTRAILS_DATA_DIR=/path/to/data
-export CONTRAILS_DATASET=my_dataset
+export REGIONAL_CONTRAILS_DATA_DIR=/path/to/data
+export REGIONAL_CONTRAILS_DATASET=my_dataset
 export PORT=9090
 python -m server.server
 ```
@@ -149,7 +146,7 @@ npm run dev
 ### 5. Running Tests
 
 From the repository root (with `.venv` activated after `pip install -e
-".[dev]"`), run the Python test suite across `common/`, `data_extraction/`, and
+".[pipeline,dev]"`), run the Python test suite across `common/`, `data_extraction/`, and
 `server/`:
 
 ```sh

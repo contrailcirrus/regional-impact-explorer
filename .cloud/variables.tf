@@ -20,3 +20,9 @@ variable "pipeline_launchers" {
   default     = ["user:joffrey.peters@contrails.org",
                   "user:nick.masson@contrails.org"]
 }
+
+variable "api_service_account_email" {
+  description = "Email of the service account contrails-api runs as on Cloud Run. It serves the dashboard API from the results bucket, so it gets read access to it."
+  type        = string
+  default     = "contrails-api-service-account@contrails-301217.iam.gserviceaccount.com"
+}

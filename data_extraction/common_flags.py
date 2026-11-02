@@ -27,8 +27,8 @@ DATASET = flags.DEFINE_string(
     "",
     "Required. Dataset identifier: the directory name under "
     "{output_prefix}/{year}/ that artifacts are published to. Up to 64 "
-    "letters, digits, '-' or '_'. Start the server with CONTRAILS_DATASET set "
-    "to the same value.",
+    "letters, digits, '-' or '_'. Start the server with "
+    "REGIONAL_CONTRAILS_DATASET set to the same value.",
 )
 
 _MAX_DATASET_LENGTH = 64
@@ -93,8 +93,8 @@ def validate_dataset(dataset: str) -> str:
   if not cleaned_dataset:
     raise ValueError(
         "--dataset is required: it names the directory the run is published "
-        "to, and the server must be started with CONTRAILS_DATASET set to "
-        "the same value."
+        "to, and the server must be started with REGIONAL_CONTRAILS_DATASET "
+        "set to the same value."
     )
   if len(
       cleaned_dataset

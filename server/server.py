@@ -3,6 +3,17 @@
 Provides endpoints to look up country and FIR metrics, rankings by metric,
 multi-year time series, spatial grid buffers, boundary GeoJSONs, and temporal
 matrices.
+
+The data endpoints live on `router`, so another FastAPI application can mount
+them under a prefix. A host application must also call
+`register_exception_handlers` (routers cannot carry exception handlers), expose
+the `X-Grid-Meta` header in its CORS policy, set the
+`REGIONAL_CONTRAILS_DATA_DIR` and `REGIONAL_CONTRAILS_DATASET` environment
+variables, and call `data_loader.configure_from_env` at startup. The router's routes gzip their own
+responses (`GzipRoute`), so the host needs no compression middleware.
+
+`app` is the standalone server: it mounts `router` at the root, adds CORS, gzip
+and the dashboard's static assets, and preloads the dataset at startup.
 """
 
 import asyncio
@@ -20,7 +31,9 @@ import zlib
 from absl import app as absl_app
 from absl import logging
 import fastapi
+from fastapi import concurrency
 from fastapi import responses
+from fastapi import routing
 from fastapi.middleware import cors
 from fastapi.middleware import gzip as gzip_middleware
 import pydantic
@@ -54,6 +67,9 @@ _DEFAULT_PORT = 9090
 _DEFAULT_HOST = "0.0.0.0"
 _HEADER_X_GRID_META = "X-Grid-Meta"
 _CACHE_CONTROL_ONE_HOUR = "public, max-age=3600"
+_HEADER_CONTENT_LENGTH = "Content-Length"
+_GZIP_MINIMUM_SIZE = 1000
+_GZIP_COMPRESS_LEVEL = 5
 _KEY_DETAIL = "detail"
 _KEY_COUNTRIES = "countries"
 _KEY_COUNTRY_NAME = "country_name"
@@ -92,7 +108,10 @@ async def _safe_preload() -> None:
 async def lifespan(
     app_instance: fastapi.FastAPI,
 ) -> abc.AsyncIterator[None]:
-  """Checks the dataset config, then preloads data in the background.
+  """Sets up storage, checks the dataset config, then preloads in background.
+
+  Only the standalone `app` runs this. A host application that mounts `router`
+  skips the preload, and every endpoint loads what it needs on first use.
 
   Args:
     app_instance: The FastAPI application being started. Unused.
@@ -102,12 +121,12 @@ async def lifespan(
 
   Raises:
     data_loader.DatasetConfigError: If no dataset is configured and
-      `CONTRAILS_DATASET` is unset or invalid. Raising here aborts startup,
-      which also covers `uvicorn server.server:app` launches that bypass
-      `main`.
+      `REGIONAL_CONTRAILS_DATASET` is unset or invalid. Raising here aborts
+      startup, which also covers `uvicorn server.server:app` launches that
+      bypass `main`.
   """
   del app_instance  # Unused.
-  dataset = data_loader.ensure_dataset_configured()
+  dataset = data_loader.configure_from_env()
   logging.info("Serving dataset %r from %s", dataset, data_loader.DATA_DIR)
 
   task = asyncio.create_task(_safe_preload())
@@ -145,8 +164,8 @@ def _gzip_middleware_kwargs() -> abc.Mapping[str, Any]:
   """Returns immutable keyword arguments for `GZipMiddleware`."""
   kwdefaults = gzip_middleware.GZipMiddleware.__init__.__kwdefaults__ or {}
   kwargs: dict[str, Any] = {
-      "minimum_size": 1000,
-      "compresslevel": 5,
+      "minimum_size": _GZIP_MINIMUM_SIZE,
+      "compresslevel": _GZIP_COMPRESS_LEVEL,
   }
   if (exclude_types := kwdefaults.get("exclude_content_types")) is not None:
     kwargs["exclude_content_types"] = (
@@ -207,10 +226,12 @@ def _domain_error_response(
   )
 
 
-def _register_domain_error_handlers(
+def register_exception_handlers(
     application: fastapi.FastAPI,
 ) -> None:
   """Maps each domain exception type onto its HTTP status code.
+
+  Call this on any application that includes `router`.
 
   Args:
     application: The FastAPI application to register handlers on.
@@ -222,7 +243,71 @@ def _register_domain_error_handlers(
     )
 
 
-_register_domain_error_handlers(app)
+register_exception_handlers(app)
+
+
+async def _gzip_body(
+    request: fastapi.Request, response: fastapi.Response
+) -> fastapi.Response:
+  """Gzips `response` in place when it is worth it and `request` accepts it.
+
+  Leaves streamed responses, bodies under `_GZIP_MINIMUM_SIZE` bytes and
+  bodies that already carry a `Content-Encoding` (the pre-gzipped grid and
+  GeoJSON payloads) as they are.
+
+  Args:
+    request: The incoming request, read only for its Accept-Encoding header.
+    response: The route's response.
+
+  Returns:
+    `response`, with a gzipped body if the client accepts gzip.
+  """
+  body = getattr(response, "body", None)
+  if (
+      not isinstance(body, bytes)
+      or len(body) < _GZIP_MINIMUM_SIZE
+      or static_assets.HEADER_CONTENT_ENCODING in response.headers
+  ):
+    return response
+  response.headers.add_vary_header(static_assets.HEADER_ACCEPT_ENCODING)
+  if not static_assets.accepts_gzip_encoding(request):
+    return response
+  # Compressing a multi-megabyte body takes long enough to stall the event
+  # loop, so it runs in the thread pool like the sync endpoints do.
+  compressed = await concurrency.run_in_threadpool(
+      gzip.compress, body, compresslevel=_GZIP_COMPRESS_LEVEL
+  )
+  response.body = compressed
+  response.headers[static_assets.HEADER_CONTENT_ENCODING] = (
+      static_assets.ENCODING_GZIP
+  )
+  response.headers[_HEADER_CONTENT_LENGTH] = str(len(compressed))
+  return response
+
+
+class GzipRoute(routing.APIRoute):
+  """A route that gzips its response when the client accepts gzip.
+
+  Compression lives on the routes rather than in middleware so that a host
+  application mounting `router` compresses the dashboard's large JSON
+  responses without changing how its own endpoints respond.
+  """
+
+  def get_route_handler(
+      self,
+  ) -> abc.Callable[
+      [fastapi.Request], abc.Coroutine[Any, Any, fastapi.Response]
+  ]:
+    handler = super().get_route_handler()
+
+    async def gzip_route_handler(request: fastapi.Request) -> fastapi.Response:
+      return await _gzip_body(request, await handler(request))
+
+    return gzip_route_handler
+
+
+# The data endpoints. `app` includes them below, after they are all defined.
+router = fastapi.APIRouter(route_class=GzipRoute)
 
 
 _ModelT = TypeVar("_ModelT", bound=pydantic.BaseModel)
@@ -321,7 +406,7 @@ def _controlling_country_iso2s(
   )
 
 
-@app.get("/years", response_model=models.AvailableYearsResponse)
+@router.get("/years", response_model=models.AvailableYearsResponse)
 def get_available_years() -> models.AvailableYearsResponse:
   """Returns the years with published data, sorted ascending.
 
@@ -334,13 +419,13 @@ def get_available_years() -> models.AvailableYearsResponse:
 # Boundary GeoJSON routes. Starlette matches routes in registration order and
 # `/countries/{year}` / `/firs/{year}` would otherwise also capture
 # `2025.json`, so these must be registered before the list routes below.
-app.add_api_route(
+router.add_api_route(
     "/countries/{year}.json",
     static_assets.get_countries_geojson,
     methods=["GET"],
     response_class=fastapi.responses.Response,
 )
-app.add_api_route(
+router.add_api_route(
     "/firs/{year}.json",
     static_assets.get_firs_geojson,
     methods=["GET"],
@@ -348,7 +433,7 @@ app.add_api_route(
 )
 
 
-@app.get("/country/{year}/{iso}", response_model=models.CountryMetricsResponse)
+@router.get("/country/{year}/{iso}", response_model=models.CountryMetricsResponse)
 def get_country_by_year_and_iso(
     year: SupportedYearPath,
     iso: str = fastapi.Path(..., description="ISO alpha-2 country code."),
@@ -464,7 +549,7 @@ def _clear_endpoint_response_caches() -> None:
 data_loader.register_cache_clear_callback(_clear_endpoint_response_caches)
 
 
-@app.get(
+@router.get(
     "/countries/{year}", response_model=list[models.CountryMetricsResponse]
 )
 def list_countries(
@@ -504,7 +589,7 @@ def list_countries(
   return response
 
 
-@app.get("/firs/{year}", response_model=list[models.FirMetricsResponse])
+@router.get("/firs/{year}", response_model=list[models.FirMetricsResponse])
 def list_firs(
     year: SupportedYearPath,
 ) -> list[models.FirMetricsResponse]:
@@ -1023,7 +1108,7 @@ def _build_country_rankings_response(
   return country_response
 
 
-@app.get("/rankings/{year}/{metric}", response_model=models.RankingsResponse)
+@router.get("/rankings/{year}/{metric}", response_model=models.RankingsResponse)
 def get_country_rankings(
     year: SupportedYearPath,
     metric: str = fastapi.Path(..., description="Metric ID."),
@@ -1299,7 +1384,7 @@ def _build_time_series_response(
   )
 
 
-@app.get("/series/{metric}", response_model=models.TimeSeriesResponse)
+@router.get("/series/{metric}", response_model=models.TimeSeriesResponse)
 def get_time_series(
     metric: str = fastapi.Path(..., description="Metric ID."),
     *,
@@ -1365,7 +1450,7 @@ def get_time_series(
   return _build_time_series_response(accumulation, spec=spec, gwp_norm=gwp_norm)
 
 
-@app.get("/grid/{year}/{prefix}/meta")
+@router.get("/grid/{year}/{prefix}/meta")
 def get_grid_meta(
     year: FormattedYearPath,
     prefix: str,
@@ -1455,7 +1540,7 @@ def _encode_grid_payload(
   return _EncodedGridPayload(content=payload, headers=headers)
 
 
-@app.get("/grid/{year}/{prefix}/binary")
+@router.get("/grid/{year}/{prefix}/binary")
 def get_grid_binary(
     year: FormattedYearPath,
     *,
@@ -1522,7 +1607,7 @@ def get_grid_binary(
   )
 
 
-@app.get(
+@router.get(
     "/grid/{year}/availability",
     response_model=models.GridAvailabilityResponse,
 )
@@ -2006,7 +2091,7 @@ def _compute_temporal_response(
   )
 
 
-@app.get("/temporal/{year}", response_model=models.TemporalMatrixResponse)
+@router.get("/temporal/{year}", response_model=models.TemporalMatrixResponse)
 def get_temporal_metrics(
     year: SupportedYearPath,
     iso: str | None = fastapi.Query(
@@ -2074,6 +2159,10 @@ def get_temporal_metrics(
       iso_clean=iso_clean,
       fir_id_clean=fir_id_clean,
   )
+
+
+# Data routes come first, so the static asset routes below cannot shadow them.
+app.include_router(router)
 
 
 # Static assets routes

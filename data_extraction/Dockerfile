@@ -18,6 +18,10 @@ ARG BEAM_VERSION
 
 WORKDIR /opt/regional-impact-explorer
 
+# The package installs common/ but not data_extraction/ (see pyproject.toml),
+# so the SDK harness imports the pipeline code from here.
+ENV PYTHONPATH=/opt/regional-impact-explorer
+
 COPY pyproject.toml README.md ./
 COPY common/ common/
 COPY data_extraction/ data_extraction/
@@ -25,7 +29,7 @@ COPY data_extraction/ data_extraction/
 # Pinning apache-beam keeps pip from replacing the SDK the base image's boot
 # entrypoint was built against. The import check fails the build, rather than
 # the first Dataflow job, if a dependency is missing.
-RUN pip install --no-cache-dir . "apache-beam[gcp]==${BEAM_VERSION}" \
+RUN pip install --no-cache-dir ".[pipeline]" "apache-beam[gcp]==${BEAM_VERSION}" \
     && cd / \
     && python -c "import data_extraction.extract_pipeline_main"
 

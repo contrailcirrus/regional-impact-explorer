@@ -1,5 +1,15 @@
 import react from '@vitejs/plugin-react';
-import {defineConfig} from 'vite';
+import {defineConfig, type ProxyOptions} from 'vite';
+
+/** Forwards a dev-server request to the backend API. */
+function backendProxy(): ProxyOptions {
+  const prefix = process.env['CONTRAILS_BACKEND_PATH_PREFIX'] ?? '';
+  return {
+    target: process.env['CONTRAILS_BACKEND_ORIGIN'] ?? 'http://localhost:9090',
+    changeOrigin: true,
+    rewrite: (path) => `${prefix}${path}`,
+  };
+}
 
 export default defineConfig({
   // The sources use the classic runtime (`@jsx React.createElement` pragmas,
@@ -24,7 +34,10 @@ export default defineConfig({
     // Every backend route the frontend actually calls, verified against
     // `server/server.py`. Defaults to `http://localhost:9090` (matching the
     // `PORT` default in `server/server.py`) and can be overridden with
-    // `CONTRAILS_BACKEND_ORIGIN`.
+    // `CONTRAILS_BACKEND_ORIGIN`. To use a host application that mounts the
+    // API under a prefix, set `CONTRAILS_BACKEND_PATH_PREFIX` (e.g.
+    // `/internal/regional` for contrails-api); requests are forwarded to
+    // `{origin}{prefix}{path}`.
     //
     // Keys are path prefixes. Year-scoped routes are `/{resource}/{year}...`,
     // so `/countries/` covers both `/countries/{year}` and
@@ -33,24 +46,18 @@ export default defineConfig({
     // the dev server's own modules: without one, `/temporal` would send
     // `/temporal_heatmap_model.ts` to the backend. `/years` is the only route
     // with no sub-path, so it is matched exactly.
-    proxy: {
-      '/country/':
-        process.env['CONTRAILS_BACKEND_ORIGIN'] ?? 'http://localhost:9090',
-      '/countries/':
-        process.env['CONTRAILS_BACKEND_ORIGIN'] ?? 'http://localhost:9090',
-      '/firs/':
-        process.env['CONTRAILS_BACKEND_ORIGIN'] ?? 'http://localhost:9090',
-      '/grid/':
-        process.env['CONTRAILS_BACKEND_ORIGIN'] ?? 'http://localhost:9090',
-      '/rankings/':
-        process.env['CONTRAILS_BACKEND_ORIGIN'] ?? 'http://localhost:9090',
-      '/series/':
-        process.env['CONTRAILS_BACKEND_ORIGIN'] ?? 'http://localhost:9090',
-      '/temporal/':
-        process.env['CONTRAILS_BACKEND_ORIGIN'] ?? 'http://localhost:9090',
-      '^/years(\\?.*)?$':
-        process.env['CONTRAILS_BACKEND_ORIGIN'] ?? 'http://localhost:9090',
-    },
+    proxy: Object.fromEntries(
+      [
+        '/country/',
+        '/countries/',
+        '/firs/',
+        '/grid/',
+        '/rankings/',
+        '/series/',
+        '/temporal/',
+        '^/years(\\?.*)?$',
+      ].map((route) => [route, backendProxy()]),
+    ),
   },
 
   build: {
