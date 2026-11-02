@@ -106,6 +106,7 @@ import {
   reconcileSelectedYear,
   RegionalFilterControls,
 } from './RegionalFilterDrawer';
+import {apiUrl} from './api_url';
 
 /**
  * Applies an initial-country `resolution` and snaps the selected year to one
@@ -538,7 +539,7 @@ const RegionalDashboardView: React.FC<RegionalDashboardViewProps> = ({
     const fetchGridAvailability = async (): Promise<void> => {
       try {
         const res = await fetch(
-          `/grid/${encodeURIComponent(filters.year)}/availability`,
+          apiUrl(`/grid/${encodeURIComponent(filters.year)}/availability`),
           {signal: abortController.signal},
         );
         const raw: unknown = res.ok ? await res.json() : null;
@@ -671,8 +672,10 @@ const RegionalDashboardView: React.FC<RegionalDashboardViewProps> = ({
           let buffer: ArrayBuffer;
           try {
             const binRes = await fetch(
-              `/grid/${encodeURIComponent(year)}/` +
-                `${encodeURIComponent(prefix)}/binary${query}`,
+              apiUrl(
+                `/grid/${encodeURIComponent(year)}/` +
+                  `${encodeURIComponent(prefix)}/binary${query}`,
+              ),
               {
                 signal: inFlightSignal,
                 headers: {'Accept-Encoding': 'gzip'},
@@ -694,8 +697,10 @@ const RegionalDashboardView: React.FC<RegionalDashboardViewProps> = ({
             if (!resolvedMeta) {
               const [metaRes, binBuffer] = await Promise.all([
                 fetch(
-                  `/grid/${encodeURIComponent(year)}/` +
-                    `${encodeURIComponent(prefix)}/meta${query}`,
+                  apiUrl(
+                    `/grid/${encodeURIComponent(year)}/` +
+                      `${encodeURIComponent(prefix)}/meta${query}`,
+                  ),
                   {signal: inFlightSignal},
                 ),
                 decodeResponseBuffer(binRes),

@@ -11,7 +11,33 @@ function backendProxy(): ProxyOptions {
   };
 }
 
+/** The Cloudflare Workers Builds branch that deploys to production. */
+const PRODUCTION_BRANCH = 'main';
+const PRODUCTION_API_BASE_URL = 'https://api.contrails.org/internal/regional';
+const DEV_API_BASE_URL = 'https://api.dev.contrails.org/internal/regional';
+
+/**
+ * Returns the API base URL the build compiles into the UI (see `api_url.ts`).
+ *
+ * `VITE_API_BASE_URL` wins when set. Otherwise Workers Builds builds (which set
+ * `WORKERS_CI_BRANCH`) use the production API for `PRODUCTION_BRANCH` and the
+ * dev API for every preview branch, and local builds use the same origin.
+ */
+function apiBaseUrl(): string {
+  const explicit = process.env['VITE_API_BASE_URL'];
+  if (explicit !== undefined) return explicit;
+  const branch = process.env['WORKERS_CI_BRANCH'];
+  if (branch === undefined) return '';
+  return branch === PRODUCTION_BRANCH
+    ? PRODUCTION_API_BASE_URL
+    : DEV_API_BASE_URL;
+}
+
 export default defineConfig({
+  define: {
+    'import.meta.env.VITE_API_BASE_URL': JSON.stringify(apiBaseUrl()),
+  },
+
   // The sources use the classic runtime (`@jsx React.createElement` pragmas,
   // `"jsx": "react"` in `tsconfig.json`); the plugin defaults to "automatic".
   plugins: [react({jsxRuntime: 'classic'})],

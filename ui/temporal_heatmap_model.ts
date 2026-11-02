@@ -25,6 +25,7 @@ import {
   MAX_SIGMOID_MIDPOINT,
   MIN_SIGMOID_MIDPOINT,
 } from './opportunity_scale';
+import {apiUrl} from './api_url';
 
 /**
  * Backend response shape from `/temporal/{year}` containing 24x12 month-hour
@@ -364,7 +365,9 @@ export function buildTemporalApiUrl(
     throw new Error('buildTemporalApiUrl: a country or FIR is required.');
   }
 
-  return `/temporal/${encodeURIComponent(yearParam)}?${params.toString()}`;
+  return apiUrl(
+    `/temporal/${encodeURIComponent(yearParam)}?${params.toString()}`,
+  );
 }
 
 /**
