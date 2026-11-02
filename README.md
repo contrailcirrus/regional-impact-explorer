@@ -143,6 +143,8 @@ npm install
 npm run dev
 ```
 
+The UI is also built and hosted by cloudflare. Check the cloudflare workers to see the latest builds.
+
 ### 5. Running Tests
 
 From the repository root (with `.venv` activated after `pip install -e
