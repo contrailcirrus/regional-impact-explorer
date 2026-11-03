@@ -1,0 +1,5 @@
+# The dashboard is not public yet: ask every crawler, including AI crawlers,
+# to stay out. `_headers` and the robots meta tag in `index.html` also mark
+# every page noindex, for crawlers that reach it anyway.
+User-agent: *
+Disallow: /

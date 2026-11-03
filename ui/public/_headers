@@ -1,0 +1,5 @@
+# Response headers for the Cloudflare Workers static-assets deploy (see
+# `wrangler.jsonc`). Vite copies this file into `dist/`; Cloudflare reads it
+# and does not serve it.
+/*
+  X-Robots-Tag: noindex, nofollow, noarchive, nosnippet, noimageindex
